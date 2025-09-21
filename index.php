@@ -1,8 +1,4 @@
 <?php
-// Enable error reporting for debugging
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
 class BricomanProductScraper {
     private $base_url = "https://www.bricoman.pl";
     private $sitemap_urls = [
@@ -41,14 +37,14 @@ class BricomanProductScraper {
         return null;
     }
     
-    public function getProductData($product_url) {
+    public function getProductData($product_url, $reference_number) {
         try {
             $html = $this->makeRequest($product_url);
             if (!$html) {
                 return ["error" => "Nie udało się pobrać strony produktu"];
             }
             
-            return $this->parseProductPage($html, $product_url);
+            return $this->parseProductPage($html, $product_url, $reference_number);
             
         } catch (Exception $e) {
             return ["error" => "Błąd przy pobieraniu danych: " . $e->getMessage()];
@@ -78,19 +74,16 @@ class BricomanProductScraper {
         return $response;
     }
     
-    private function parseProductPage($html, $product_url) {
-        // Wydziel kod referencji z URL - ostatnie cyfry w adresie
-        $reference_code = $this->extractReferenceCode($product_url);
-        
+    private function parseProductPage($html, $product_url, $reference_number) {
         $data = [
             'title' => ['Produkt Bricoman'],
-            'main_sku' => [$reference_code],
+            'main_sku' => [$reference_number],
             'product_picture' => null,
             'product_brand' => null,
             'attributes_list_object' => $this->extractTechnicalSpecifications($html),
+            'pictograms' => $this->extractPictograms($html),
             'print_date' => date('d.m.Y'),
-            'print_hour' => date('H:i'),
-            'pictos' => []
+            'print_hour' => date('H:i')
         ];
         
         // Extract title
@@ -106,72 +99,39 @@ class BricomanProductScraper {
         return $data;
     }
     
-    private function extractReferenceCode($product_url) {
-        // Wydziel ostatnie cyfry z URL (kod referencji)
-        $path = parse_url($product_url, PHP_URL_PATH);
-        $parts = explode('/', $path);
-        $last_part = end($parts);
-        
-        // Szukaj ciągu cyfr na końcu URL
-        if (preg_match('/(\d+)$/', $last_part, $match)) {
-            return $match[1];
-        }
-        
-        // Jeśli nie znaleziono cyfr, zwróć ostatnią część URL
-        return $last_part;
-    }
-    
     private function extractTechnicalSpecifications($html) {
         $specs = [];
         
-        // Szukaj różnych wariantów sekcji ze specyfikacjami
         $section_patterns = [
+            '/<table[^>]*class="[^"]*data-table[^"]*"[^>]*>(.*?)<\/table>/is',
             '/<div[^>]*class="[^"]*specification[^"]*"[^>]*>(.*?)<\/div>/is',
             '/<div[^>]*class="[^"]*technical[^"]*"[^>]*>(.*?)<\/div>/is',
             '/<table[^>]*class="[^"]*spec[^"]*"[^>]*>(.*?)<\/table>/is',
-            '/<div[^>]*id="[^"]*spec[^"]*"[^>]*>(.*?)<\/div>/is',
-            '/<div[^>]*data-testid="[^"]*specification[^"]*"[^>]*>(.*?)<\/div>/is'
         ];
         
-        $specs_section = '';
         foreach ($section_patterns as $pattern) {
             if (preg_match($pattern, $html, $match)) {
                 $specs_section = $match[1];
-                break;
+                if (preg_match_all('/<tr[^>]*>(.*?)<\/tr>/is', $specs_section, $row_matches)) {
+                    foreach ($row_matches[1] as $row) {
+                        $spec = $this->parseTableRow($row);
+                        if ($spec) {
+                            $specs[] = $spec;
+                        }
+                    }
+                    if (!empty($specs)) break;
+                }
             }
         }
         
-        // Jeśli znaleziono sekcję, parsuj specyfikacje
-        if (!empty($specs_section)) {
-            // Metoda 1: Parsowanie tabeli
-            if (preg_match_all('/<tr[^>]*>(.*?)<\/tr>/is', $specs_section, $row_matches)) {
-                foreach ($row_matches[1] as $row) {
-                    $spec = $this->parseSpecificationRow($row);
-                    if ($spec) {
-                        $specs[] = $spec;
-                    }
-                }
-            }
-            
-            // Metoda 2: Parsowanie listy (divy)
-            if (empty($specs) && preg_match_all('/<div[^>]*class="[^"]*spec-item[^"]*"[^>]*>(.*?)<\/div>/is', $specs_section, $item_matches)) {
-                foreach ($item_matches[1] as $item) {
-                    $spec = $this->parseSpecificationItem($item);
-                    if ($spec) {
-                        $specs[] = $spec;
-                    }
-                }
-            }
-            
-            // Metoda 3: Parsowanie dl list
-            if (empty($specs) && preg_match_all('/<dl[^>]*>(.*?)<\/dl>/is', $specs_section, $dl_matches)) {
-                foreach ($dl_matches[1] as $dl) {
-                    if (preg_match_all('/<dt[^>]*>(.*?)<\/dt>\s*<dd[^>]*>(.*?)<\/dd>/is', $dl, $spec_matches, PREG_SET_ORDER)) {
-                        foreach ($spec_matches as $match) {
-                            $label = trim(strip_tags($match[1]));
-                            $value = trim(strip_tags($match[2]));
-                            if (!empty($label) && !empty($value)) {
-                                $specs[] = ['label' => $label, 'value' => $value];
+        if (empty($specs)) {
+            if (preg_match_all('/<table[^>]*>(.*?)<\/table>/is', $html, $table_matches)) {
+                foreach ($table_matches[1] as $table_content) {
+                    if (preg_match_all('/<tr[^>]*>(.*?)<\/tr>/is', $table_content, $row_matches)) {
+                        foreach ($row_matches[1] as $row) {
+                            $spec = $this->parseTableRow($row);
+                            if ($spec) {
+                                $specs[] = $spec;
                             }
                         }
                     }
@@ -179,50 +139,63 @@ class BricomanProductScraper {
             }
         }
         
-        // Jeśli nie znaleziono specyfikacji, szukaj bezpośrednio w HTML
-        if (empty($specs)) {
-            // Szukaj wszystkich tabel
-            if (preg_match_all('/<tr[^>]*>.*?<td[^>]*>(.*?)<\/td>.*?<td[^>]*>(.*?)<\/td>.*?<\/tr>/is', $html, $table_matches, PREG_SET_ORDER)) {
-                foreach ($table_matches as $match) {
-                    $label = trim(strip_tags($match[1]));
-                    $value = trim(strip_tags($match[2]));
-                    if (!empty($label) && !empty($value) && strlen($label) < 50 && strlen($value) < 100) {
-                        $specs[] = ['label' => $label, 'value' => $value];
+        return $specs;
+    }
+    
+    private function extractPictograms($html) {
+        $pictograms = [];
+        
+        $pictogram_patterns = [
+            '/<img[^>]*class="[^"]*pictogram[^"]*"[^>]*src="([^"]*)"[^>]*>/i',
+            '/<img[^>]*class="[^"]*icon[^"]*"[^>]*src="([^"]*)"[^>]*>/i',
+            '/<img[^>]*src="[^"]*pictogram[^"]*"[^>]*>/i',
+            '/<img[^>]*alt="[^"]*pictogram[^"]*"[^>]*src="([^"]*)"[^>]*>/i'
+        ];
+        
+        foreach ($pictogram_patterns as $pattern) {
+            if (preg_match_all($pattern, $html, $matches)) {
+                foreach ($matches[1] as $img_src) {
+                    if (strpos($img_src, 'pictogram') !== false || strpos($img_src, 'icon') !== false) {
+                        $pictograms[] = $img_src;
                     }
                 }
+                if (!empty($pictograms)) break;
             }
         }
         
-        return array_slice($specs, 0, 15); // Ogranicz do 15 specyfikacji
+        return array_slice(array_unique($pictograms), 0, 10);
     }
     
-    private function parseSpecificationRow($row) {
-        if (preg_match_all('/<td[^>]*>(.*?)<\/td>/is', $row, $cell_matches)) {
-            if (count($cell_matches[1]) >= 2) {
-                $label = trim(strip_tags($cell_matches[1][0]));
-                $value = trim(strip_tags($cell_matches[1][1]));
+    private function parseTableRow($row) {
+        if (preg_match_all('/<t(d|h)[^>]*>(.*?)<\/t(d|h)>/is', $row, $cell_matches)) {
+            $cells = $cell_matches[2];
+            
+            if (count($cells) >= 2) {
+                $label = trim(strip_tags($cells[0]));
+                $value = trim(strip_tags($cells[1]));
                 
-                if (!empty($label) && !empty($value)) {
-                    return ['label' => $label, 'value' => $value];
+                $label = preg_replace('/\s+/', ' ', $label);
+                $value = preg_replace('/\s+/', ' ', $value);
+                
+                if (!empty($label) && !empty($value) && $label !== $value) {
+                    return [
+                        'label' => htmlspecialchars($label),
+                        'value' => htmlspecialchars($value)
+                    ];
                 }
             }
         }
         return null;
     }
     
-    private function parseSpecificationItem($item) {
-        if (preg_match('/<span[^>]*class="[^"]*label[^"]*"[^>]*>(.*?)<\/span>/is', $item, $label_match) &&
-            preg_match('/<span[^>]*class="[^"]*value[^"]*"[^>]*>(.*?)<\/span>/is', $item, $value_match)) {
-            $label = trim(strip_tags($label_match[1]));
-            $value = trim(strip_tags($value_match[1]));
-            if (!empty($label) && !empty($value)) {
-                return ['label' => $label, 'value' => $value];
-            }
-        }
-        return null;
+    private function generateBarcode($code) {
+
+        return "https://barcode.tec-it.com/barcode.ashx?data=" . urlencode($code) . "&code=Code128&dpi=96";
     }
     
     public function generateHtmlTemplate($data) {
+        $barcode_url = $this->generateBarcode($data['main_sku'][0]);
+        
         $html = '<!DOCTYPE html>
 <html>
 <head>
@@ -231,7 +204,7 @@ class BricomanProductScraper {
     <meta id="orientation" name="format" content="P"/>
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
     <style>
-        body{ width:100%; height:3508px; position:relative; page-break-inside:avoid; font-family: Arial, sans-serif; }
+        body{ width:100%; height:auto; position:relative; page-break-inside:avoid; font-family: Arial, sans-serif; margin: 0; padding: 20px; }
         .top-border{ background-color: #da7625; height:10px; margin-bottom:10px; }
         .midle-border{ background-color: #da7625; height:5px; }
         .table_product_data { margin-top:5px; border-collapse: collapse; width: 100%; max-width: 550px; }
@@ -239,6 +212,10 @@ class BricomanProductScraper {
         .title_data{ width:160px; font-weight: bold; background-color: #f2f2f2; }
         .value_data{ width:285px; }
         .brand-picture{ max-width:100px; max-height: 60px; }
+        .barcode { max-width: 200px; height: 50px; margin-top: 10px; }
+        .pictograms-container { display: flex; flex-wrap: wrap; gap: 15px; margin-top: 30px; padding: 20px; background: #f9f9f9; border-radius: 8px; }
+        .pictogram { max-width: 60px; max-height: 60px; }
+        .print-info { margin-top: 30px; font-size: 8pt; color: #666; }
     </style>
     <title>' . htmlspecialchars($data['title'][0]) . '</title>
 </head>
@@ -262,8 +239,11 @@ class BricomanProductScraper {
 
 <table style="width: 100%; margin-top: 20px;">
     <tr>
-        <td>Nr ref. ' . htmlspecialchars($data['main_sku'][0]) . '</td>
-        <td style="text-align: center;">';
+        <td>
+            <strong>Nr ref.: ' . htmlspecialchars($data['main_sku'][0]) . '</strong><br>
+            <img class="barcode" src="' . $barcode_url . '" alt="Kod kreskowy" />
+        </td>
+        <td style="text-align: center; vertical-align: top;">';
         
         if (!empty($data['product_brand'])) {
             $html .= '<img class="brand-picture" src="' . htmlspecialchars($data['product_brand']) . '" />';
@@ -275,31 +255,55 @@ class BricomanProductScraper {
 
 <div class="midle-border"></div>
 
-<h2 style="margin: 20px 0 10px 0;">CECHY PRODUKTU</h2>
+<h2 style="margin: 20px 0 10px 0;">CECHY PRODUKTU</h2>';
 
+        if (!empty($data['attributes_list_object'])) {
+            $html .= '
 <table class="table_product_data">
     <tr style="background-color: #6c6c6c;">
         <td style="height: 5px;"></td>
         <td style="height: 5px;"></td>
     </tr>';
     
-    foreach ($data['attributes_list_object'] as $index => $attribute) {
-        $bg_color = ($index % 2 == 0) ? '#ffffff' : '#f2f2f2';
-        $html .= '
+            foreach ($data['attributes_list_object'] as $index => $attribute) {
+                $bg_color = ($index % 2 == 0) ? '#ffffff' : '#f2f2f2';
+                $html .= '
     <tr style="background-color: ' . $bg_color . ';">
-        <td class="title_data">' . htmlspecialchars($attribute['label']) . '</td>
-        <td class="value_data">' . htmlspecialchars($attribute['value']) . '</td>
+        <td class="title_data">' . $attribute['label'] . '</td>
+        <td class="value_data">' . $attribute['value'] . '</td>
     </tr>';
-    }
+            }
     
-    $html .= '
+            $html .= '
     <tr style="background-color: #6c6c6c;">
         <td style="height: 5px;"></td>
         <td style="height: 5px;"></td>
     </tr>
-</table>
+</table>';
+        } else {
+            $html .= '
+<p style="color: #999; font-style: italic; margin: 20px 0;">
+    Brak danych technicznych dla tego produktu.
+</p>';
+        }
 
-<div style="margin-top: 30px; font-size: 8pt;">
+        if (!empty($data['pictograms'])) {
+            $html .= '
+<div class="midle-border" style="margin-top: 30px;"></div>
+<h2 style="margin: 20px 0 10px 0;">PIKTOGRAMY</h2>
+<div class="pictograms-container">';
+            
+            foreach ($data['pictograms'] as $pictogram) {
+                $html .= '
+    <img class="pictogram" src="' . htmlspecialchars($pictogram) . '" alt="Piktogram" />';
+            }
+            
+            $html .= '
+</div>';
+        }
+        
+        $html .= '
+<div class="print-info">
     Data wydruku: ' . $data['print_date'] . ' r. ' . $data['print_hour'] . '
 </div>
 
@@ -310,7 +314,6 @@ class BricomanProductScraper {
     }
 }
 
-// Main processing
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $reference_number = trim($_POST['reference_number'] ?? '');
     
@@ -320,7 +323,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $product_url = $scraper->findProductByReference($reference_number);
             
             if ($product_url) {
-                $product_data = $scraper->getProductData($product_url);
+                $product_data = $scraper->getProductData($product_url, $reference_number);
                 
                 if (!isset($product_data['error'])) {
                     $html_output = $scraper->generateHtmlTemplate($product_data);
