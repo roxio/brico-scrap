@@ -346,10 +346,9 @@ class BricomanProductScraper {
         }
         return null;
     }
-    
     private function generateBarcode($code) {
-        return "https://barcode.tec-it.com/barcode.ashx?data=" . urlencode($code) . "&code=Code128&dpi=96&format=png&unit=px&height=30&width=150&text=";
-    }
+    return "https://barcode.tec-it.com/barcode.ashx?data=" . urlencode($code) . "&code=Code128&dpi=120&format=png&unit=px&height=35&width=200&hidehrt=TRUE";
+}
     
     public function generateMultiProductHtmlTemplate($products_data) {
         $html = '<!DOCTYPE html>
@@ -462,6 +461,7 @@ class BricomanProductScraper {
             display: flex;
             align-items: center;
             margin: 1mm 0;
+			font-size: 12pt;
         }
         .product-title {
             font-size: 16pt;
@@ -539,7 +539,7 @@ class BricomanProductScraper {
         <tr>
             <td style="width:60%; vertical-align: bottom;">
                 <div class="ref-barcode">
-                    <strong>Nr ref.: </strong>
+                    <strong>Nr ref.:  ' . htmlspecialchars($data['main_sku'][0]) . '</strong>
                     <img class="barcode" src="' . $barcode_url . '" alt="" />
                 </div>
             </td>
