@@ -7,6 +7,20 @@ class BricomanProductScraper {
     ];
     private $pictograms = [];
     
+    // Łatwo konfigurowalna lista cech do wykluczenia
+    private $excluded_features = [
+        'Kraj odpowiedzialnego podmiotu gospodarczego produktu w UE',
+        'Głębokość transport',
+        'Wysokość transport',
+        'Szerokość transport',
+        'Rodzina kolorów',
+        'Kolor rodzina',
+        'Kod dostawcy',
+        'Referencja dostawcy'
+        // Tutaj możesz dodać więcej cech do wykluczenia
+        // Wystarczy dopisać nową linię z nazwą cechy
+    ];
+    
     public function findProductByReference($reference_number) {
         foreach ($this->sitemap_urls as $sitemap_url) {
             try {
@@ -189,7 +203,7 @@ class BricomanProductScraper {
             if (preg_match_all('/<li[^>]*>(.*?)<\/li>/is', $specs_section, $li_matches)) {
                 foreach ($li_matches[1] as $li) {
                     $spec = $this->parseFeatureItem($li);
-                    if ($spec) {
+                    if ($spec && !$this->shouldExcludeFeature($spec['label'])) {
                         $specs[] = $spec;
                     }
                 }
@@ -210,14 +224,14 @@ class BricomanProductScraper {
                     if (preg_match_all('/<tr[^>]*>(.*?)<\/tr>/is', $specs_section, $row_matches)) {
                         foreach ($row_matches[1] as $row) {
                             $spec = $this->parseTableRow($row);
-                            if ($spec) {
+                            if ($spec && !$this->shouldExcludeFeature($spec['label'])) {
                                 $specs[] = $spec;
                             }
                         }
                     } elseif (preg_match_all('/<div[^>]*class="[^"]*specification-item[^"]*"[^>]*>(.*?)<\/div>/is', $specs_section, $item_matches)) {
                         foreach ($item_matches[1] as $item) {
                             $spec = $this->parseSpecificationItem($item);
-                            if ($spec) {
+                            if ($spec && !$this->shouldExcludeFeature($spec['label'])) {
                                 $specs[] = $spec;
                             }
                         }
@@ -227,6 +241,47 @@ class BricomanProductScraper {
         }
         
         return $specs;
+    }
+    
+    /**
+     * Sprawdza czy dana cecha powinna być wykluczona
+     */
+    private function shouldExcludeFeature($label) {
+        $label = trim($label);
+        foreach ($this->excluded_features as $excluded) {
+            // Sprawdzanie częściowego dopasowania (case-insensitive)
+            if (stripos($label, $excluded) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * Metoda umożliwiająca dynamiczne dodawanie wykluczeń
+     */
+    public function addExcludedFeature($feature) {
+        if (!in_array($feature, $this->excluded_features)) {
+            $this->excluded_features[] = $feature;
+        }
+    }
+    
+    /**
+     * Metoda umożliwiająca usuwanie wykluczeń
+     */
+    public function removeExcludedFeature($feature) {
+        $key = array_search($feature, $this->excluded_features);
+        if ($key !== false) {
+            unset($this->excluded_features[$key]);
+            $this->excluded_features = array_values($this->excluded_features);
+        }
+    }
+    
+    /**
+     * Metoda zwracająca aktualną listę wykluczeń (dla debugowania)
+     */
+    public function getExcludedFeatures() {
+        return $this->excluded_features;
     }
     
     private function parseFeatureItem($li) {
@@ -352,16 +407,18 @@ class BricomanProductScraper {
             font-size: 8pt;
         }
         .table_product_data td {
-            border: 0.5px solid #dddddd;
+            border: 0.7px solid #03195c;
             padding: 1mm;
         }
         .title_data {
             width: 40%;
             font-weight: bold;
+			font-size: 11pt;
             background-color: #f2f2f2;
         }
         .value_data {
             width: 60%;
+			font-size: 11pt;
         }
         .brand-picture {
             max-width: 20mm;
@@ -376,18 +433,18 @@ class BricomanProductScraper {
         .pictograms-container {
             display: flex;
             flex-wrap: wrap;
-            gap: 2mm;
-            margin-top: 3mm;
-            padding: 2mm;
+            gap: 1mm;
+            margin-top: 1mm;
+            padding: 1mm;
             background: #f9f9f9;
             border-radius: 1mm;
             border: 0.3mm solid #da7625;
-            max-height: 25mm;
+            max-height: 20mm;
             overflow-y: auto;
         }
         .pictogram {
-            width: 12mm;
-            height: 12mm;
+            width: 18mm;
+            height: 18mm;
             object-fit: contain;
             padding: 0.5mm;
             background: white;
@@ -406,14 +463,6 @@ class BricomanProductScraper {
             align-items: center;
             margin: 1mm 0;
         }
-        .pictograms-title {
-            font-size: 9pt;
-            font-weight: bold;
-            margin-bottom: 2mm;
-            color: #333;
-            width: 100%;
-            text-align: center;
-        }
         .product-title {
             font-size: 16pt;
             margin: 0;
@@ -427,7 +476,7 @@ class BricomanProductScraper {
             object-fit: contain;
         }
         .section-title {
-            font-size: 9pt;
+            font-size: 10pt;
             margin: 2mm 0 1mm 0;
             font-weight: bold;
         }
@@ -441,7 +490,9 @@ class BricomanProductScraper {
                 width: 297mm;
                 height: 210mm;
                 margin: 0;
-                padding: 5mm;
+                padding: 2mm;
+				-webkit-print-color-adjust: exact; /* Chrome, Safari */
+				print-color-adjust: exact;         /* Firefox */
             }
             .product-card {
                 border: 0.5px solid #ccc;
@@ -548,9 +599,6 @@ class BricomanProductScraper {
         Brak danych technicznych dla tego produktu.
     </p>';
             }
-
-            // Dodaj piktogramy
-            
             
             $html .= '
     <div class="print-info">
@@ -579,10 +627,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Podziel wprowadzone numery referencyjne (po przecinku, spacjach lub nowych liniach)
             $reference_numbers = preg_split('/[\s,\n]+/', $reference_numbers_input, -1, PREG_SPLIT_NO_EMPTY);
             $reference_numbers = array_map('trim', $reference_numbers);
-            $reference_numbers = array_unique($reference_numbers); // Usuń duplikaty
+            $reference_numbers = array_unique($reference_numbers);
             
             if (count($reference_numbers) > 0) {
                 $scraper = new BricomanProductScraper();
+                
+                // Przykład: $scraper->addExcludedFeature('Nowa cecha do wykluczenia');
+                
                 $products_data = [];
                 $found_products = [];
                 $not_found_products = [];
@@ -628,7 +679,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'found_count' => count($found_products),
                             'not_found_count' => count($not_found_products),
                             'found_products' => $found_products,
-                            'not_found_products' => $not_found_products
+                            'not_found_products' => $not_found_products,
+                            'excluded_features' => $scraper->getExcludedFeatures() // Pokazuje użyte wykluczenia
                         ];
                     } else {
                         $result = ['error' => 'Nie udało się zapisać pliku'];
@@ -686,11 +738,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .product-found { color: #2e7d32; }
         .product-not-found { color: #c62828; }
         .instructions { background: #fff3e0; padding: 15px; border-radius: 6px; margin-bottom: 15px; }
+        .excluded-features { background: #f0f0f0; padding: 10px; border-radius: 5px; margin: 10px 0; font-size: 12px; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1 style="text-align: center; color: #2c3e50;">🔍 Karty techniczne A5</h1>
+        
         <div class="instructions">
             <h3>📋 Instrukcja:</h3>
             <p>Wpisz numery referencyjne produktów (jeden pod drugim lub oddzielone przecinkami/spacjami).</p>
@@ -724,20 +778,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         📥 Pobierz kartę produktów
                     </a></p>
                     
-                   
-                    <?php if (!empty($result['not_found_products'])): ?>
-                        <div class="products-list">
-                            <h4>Błędy:</h4>
-                            <?php foreach ($result['not_found_products'] as $product): ?>
-                                <div class="product-item product-not-found">
-                                    ❌ <strong><?= htmlspecialchars($product['reference']) ?></strong>: 
-                                    <?= htmlspecialchars($product['error']) ?>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php endif; ?>
-					
-					 <?php if (!empty($result['found_products'])): ?>
+                    <?php if (!empty($result['found_products'])): ?>
                         <div class="products-list">
                             <h4>Znalezione produkty:</h4>
                             <?php foreach ($result['found_products'] as $product): ?>
@@ -749,9 +790,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                     <?php endif; ?>
                     
+                    <?php if (!empty($result['not_found_products'])): ?>
+                        <div class="products-list">
+                            <h4>Błędy:</h4>
+                            <?php foreach ($result['not_found_products'] as $product): ?>
+                                <div class="product-item product-not-found">
+                                    ❌ <strong><?= htmlspecialchars($product['reference']) ?></strong>: 
+                                    <?= htmlspecialchars($product['error']) ?>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
         <?php endif; ?>
+		
+		<div class="instructions">
+		<div class="excluded-features">
+                <strong>🚫 Aktualnie wykluczone cechy:</strong><br>
+                <?php
+                $scraper_temp = new BricomanProductScraper();
+                $excluded = $scraper_temp->getExcludedFeatures();
+                echo implode(', ', $excluded);
+                ?>
+				
+            </div>
+			</div>
     </div>
 </body>
 </html>
