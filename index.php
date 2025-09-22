@@ -87,12 +87,10 @@ class BricomanProductScraper {
             'print_hour' => date('H:i')
         ];
         
-        // Extract title
         if (preg_match('/<h1[^>]*>(.*?)<\/h1>/i', $html, $match)) {
             $data['title'][0] = strip_tags(trim($match[1]));
         }
         
-        // Extract product image - specyficznie dla b-product-carousel__main-slide-image
         $image_patterns = [
             '/<img[^>]*class="[^"]*b-product-carousel__main-slide swiper-slide[^"]*"[^>]*src="([^"]*\.(jpg|jpeg|png|gif))"[^>]*>/i',
             '/<img[^>]*class="[^"]*b-product-carousel__main-slide swiper-slide[^"]*"[^>]*data-src="([^"]*\.(jpg|jpeg|png|gif))"[^>]*>/i',
@@ -101,21 +99,11 @@ class BricomanProductScraper {
         
         foreach ($image_patterns as $pattern) {
             if (preg_match($pattern, $html, $match)) {
-                $data['product_picture'] = $match[1];
-                
-                // Jeśli to relative URL, dodaj base URL
-                if ($data['product_picture'] && strpos($data['product_picture'], 'http') !== 0) {
-                    if (strpos($data['product_picture'], '//') === 0) {
-                        $data['product_picture'] = 'https:' . $data['product_picture'];
-                    } else {
-                        $data['product_picture'] = $this->base_url . $data['product_picture'];
-                    }
-                }
+                $data['product_picture'] = $this->normalizeUrl($match[1]);
                 break;
             }
         }
         
-        // Extract brand - specyficznie dla b-product-carousel__main-brand-image
         $brand_patterns = [
             '/<img[^>]*class="[^"]*b-product-carousel__main-brand-image[^"]*"[^>]*src="([^"]*)"[^>]*>/i',
             '/<img[^>]*class="[^"]*b-product-carousel__main-brand-image[^"]*"[^>]*data-src="([^"]*)"[^>]*>/i',
@@ -124,101 +112,69 @@ class BricomanProductScraper {
         
         foreach ($brand_patterns as $pattern) {
             if (preg_match($pattern, $html, $match)) {
-                $data['product_brand'] = $match[1];
-                
-                // Jeśli to relative URL, dodaj base URL
-                if ($data['product_brand'] && strpos($data['product_brand'], 'http') !== 0) {
-                    if (strpos($data['product_brand'], '//') === 0) {
-                        $data['product_brand'] = 'https:' . $data['product_brand'];
-                    } else {
-                        $data['product_brand'] = $this->base_url . $data['product_brand'];
-                    }
-                }
+                $data['product_brand'] = $this->normalizeUrl($match[1]);
                 break;
             }
         }
         
-        // Extract piktogramy z sekcji b-product-details__accordion
         $this->extractPictogramsFromAccordion($html);
+        $data['pictograms'] = $this->pictograms;
         
         return $data;
+    }
+
+    private function normalizeUrl($url) {
+        if (!$url) return null;
+        if (strpos($url, 'http') === 0) {
+            return $url;
+        }
+        if (strpos($url, '//') === 0) {
+            return 'https:' . $url;
+        }
+        return $this->base_url . $url;
     }
     
     private function extractPictogramsFromAccordion($html) {
         $pictograms = [];
-        
-        // Szukaj sekcji b-product-details__accordion
-        if (preg_match('/<div[^>]*class="[^"]*b-product-details[^"]*"[^>]*>(.*?)<\/div>/is', $html, $accordion_match)) {
+    
+        if (preg_match('/<m-accordion[^>]*class="[^"]*b-product-details__accordion[^"]*"[^>]*>(.*?)<\/m-accordion>/is', $html, $accordion_match)) {
             $accordion_section = $accordion_match[1];
-            
-            // Szukaj wszystkich obrazków JPG w tej sekcji
-            if (preg_match_all('/<img[^>]*src="([^"]*\.jpg[^"]*)"[^>]*>/i', $accordion_section, $img_matches)) {
+    
+            if (preg_match_all('/<img[^>]*(?:src|data-src)="([^"]*(_picto)?\.(jpg|jpeg|png|svg)(\?[^"]*)?)"[^>]*>/i', $accordion_section, $img_matches)) {
                 foreach ($img_matches[1] as $img_url) {
-                    if (!empty($img_url)) {
-                        // Normalizuj URL
-                        if (strpos($img_url, 'http') !== 0) {
-                            if (strpos($img_url, '//') === 0) {
-                                $img_url = 'https:' . $img_url;
-                            } else {
-                                $img_url = $this->base_url . $img_url;
-                            }
-                        }
-                        $pictograms[] = $img_url;
-                    }
-                }
-            }
-            
-            // Szukaj również w data-src (dla lazy loading)
-            if (preg_match_all('/<img[^>]*data-src="([^"]*\.jpg[^"]*)"[^>]*>/i', $accordion_section, $data_src_matches)) {
-                foreach ($data_src_matches[1] as $img_url) {
-                    if (!empty($img_url)) {
-                        // Normalizuj URL
-                        if (strpos($img_url, 'http') !== 0) {
-                            if (strpos($img_url, '//') === 0) {
-                                $img_url = 'https:' . $img_url;
-                            } else {
-                                $img_url = $this->base_url . $img_url;
-                            }
-                        }
-                        $pictograms[] = $img_url;
+                    $normalized = $this->normalizeUrl($img_url);
+                    if ($normalized) {
+                        $pictograms[] = $normalized;
                     }
                 }
             }
         }
-        
-        // Dodaj również piktogramy z cech produktu
+    
+        if (preg_match_all('/<img[^>]*(?:src|data-src)="([^"]*?_picto\.(jpg|jpeg|png|svg)(\?[^"]*)?)"[^>]*>/i', $html, $all_matches)) {
+            foreach ($all_matches[1] as $img_url) {
+                $normalized = $this->normalizeUrl($img_url);
+                if ($normalized) {
+                    $pictograms[] = $normalized;
+                }
+            }
+        }
+    
         $feature_pictograms = $this->extractPictogramsFromFeatures($html);
         $pictograms = array_merge($pictograms, $feature_pictograms);
-        
-        // Usuń duplikaty i zapisz
+    
         $this->pictograms = array_unique($pictograms);
     }
     
     private function extractPictogramsFromFeatures($html) {
         $pictograms = [];
-        
-        // Szukaj sekcji "Cechy produktu"
         if (preg_match('/<h3[^>]*>[^<]*Cechy produktu[^<]*<\/h3>(.*?)<(h3|div|section)/is', $html, $section_match)) {
             $specs_section = $section_match[1];
-            
-            // Szukaj obrazków w cechach
-            if (preg_match_all('/<img[^>]*src="([^"]*\.(svg|png|jpg|jpeg))"[^>]*>/i', $specs_section, $img_matches)) {
+            if (preg_match_all('/<img[^>]*src="([^"]*(_picto)?\.(svg|png|jpg|jpeg))"[^>]*>/i', $specs_section, $img_matches)) {
                 foreach ($img_matches[1] as $img_url) {
-                    if (!empty($img_url)) {
-                        // Normalizuj URL
-                        if (strpos($img_url, 'http') !== 0) {
-                            if (strpos($img_url, '//') === 0) {
-                                $img_url = 'https:' . $img_url;
-                            } else {
-                                $img_url = $this->base_url . $img_url;
-                            }
-                        }
-                        $pictograms[] = $img_url;
-                    }
+                    $pictograms[] = $this->normalizeUrl($img_url);
                 }
             }
         }
-        
         return $pictograms;
     }
     
@@ -459,7 +415,7 @@ class BricomanProductScraper {
             text-align: center;
         }
         .product-title {
-            font-size: 10pt;
+            font-size: 16pt;
             margin: 0;
             line-height: 1.1;
             max-height: 12mm;
@@ -532,8 +488,8 @@ class BricomanProductScraper {
         <tr>
             <td style="width:60%; vertical-align: bottom;">
                 <div class="ref-barcode">
-                    <strong>Nr ref.: ' . htmlspecialchars($data['main_sku'][0]) . '</strong>
-                    <img class="barcode" src="' . $barcode_url . '" alt="Kod kreskowy" />
+                    <strong>Nr ref.: </strong>
+                    <img class="barcode" src="' . $barcode_url . '" alt="" />
                 </div>
             </td>
             <td style="width:40%; text-align: center; vertical-align: top;">';
@@ -549,6 +505,19 @@ class BricomanProductScraper {
     <div class="midle-border"></div>
 
     <h2 class="section-title">CECHY PRODUKTU</h2>';
+	
+	if (!empty($data['pictograms'])) {
+                $html .= '
+    <div class="pictograms-container">';
+                
+                foreach ($data['pictograms'] as $pictogram) {
+                    $html .= '
+        <img class="pictogram" src="' . htmlspecialchars($pictogram) . '" alt="Piktogram" />';
+                }
+                
+                $html .= '
+    </div>';
+            }
 
             if (!empty($data['attributes_list_object'])) {
                 $html .= '
@@ -581,19 +550,7 @@ class BricomanProductScraper {
             }
 
             // Dodaj piktogramy
-            if (!empty($data['pictograms'])) {
-                $html .= '
-    <div class="pictograms-container">
-        <div class="pictograms-title">Piktogramy produktu:</div>';
-                
-                foreach ($data['pictograms'] as $pictogram) {
-                    $html .= '
-        <img class="pictogram" src="' . htmlspecialchars($pictogram) . '" alt="Piktogram" />';
-                }
-                
-                $html .= '
-    </div>';
-            }
+            
             
             $html .= '
     <div class="print-info">
@@ -743,10 +700,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="search-form">
             <form method="POST">
                 <label for="reference_numbers"><strong>Numery referencyjne:</strong></label><br>
-                <textarea name="reference_numbers" placeholder="Wpisz numery referencyjne, np.:
-123456
-789012
-345678" required><?= htmlspecialchars($_POST['reference_numbers'] ?? '') ?></textarea>
+                <textarea name="reference_numbers" placeholder="Wpisz numery referencyjne, np.: 123456, 789012, 345678" required><?= htmlspecialchars($_POST['reference_numbers'] ?? '') ?></textarea>
                 <br>
                 <button type="submit">Generuj karty</button>
             </form>
@@ -760,17 +714,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             <?php else: ?>
                 <div class="success">
-                    <h3>✅ Sukces!</h3>
-                    <p>Znaleziono <strong><?= $result['found_count'] ?></strong> produktów.</p>
+                    <h3>✅ Gotowe!</h3>
+                    <p>Wygenerowano karty dla <strong><?= $result['found_count'] ?></strong> produktów.
                     <?php if ($result['not_found_count'] > 0): ?>
-                        <p>Nie znaleziono <strong><?= $result['not_found_count'] ?></strong> produktów.</p>
+                         Pominięto lub nie znaleziono <strong><?= $result['not_found_count'] ?></strong> produktów.
                     <?php endif; ?>
-                    
-                    <p><a href="<?= htmlspecialchars($result['filename']) ?>" download style="color: #2e7d32; text-decoration: none; font-weight: bold;">
+                    </p>
+                    <p><a href="<?= htmlspecialchars($result['filename']) ?>" download style="color: #FF7d32; text-decoration: none; font-size: 2.0rem; font-weight: bold;">
                         📥 Pobierz kartę produktów
                     </a></p>
                     
-                    <?php if (!empty($result['found_products'])): ?>
+                   
+                    <?php if (!empty($result['not_found_products'])): ?>
+                        <div class="products-list">
+                            <h4>Błędy:</h4>
+                            <?php foreach ($result['not_found_products'] as $product): ?>
+                                <div class="product-item product-not-found">
+                                    ❌ <strong><?= htmlspecialchars($product['reference']) ?></strong>: 
+                                    <?= htmlspecialchars($product['error']) ?>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+					
+					 <?php if (!empty($result['found_products'])): ?>
                         <div class="products-list">
                             <h4>Znalezione produkty:</h4>
                             <?php foreach ($result['found_products'] as $product): ?>
@@ -782,17 +749,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                     <?php endif; ?>
                     
-                    <?php if (!empty($result['not_found_products'])): ?>
-                        <div class="products-list">
-                            <h4>Nieznalezione produkty:</h4>
-                            <?php foreach ($result['not_found_products'] as $product): ?>
-                                <div class="product-item product-not-found">
-                                    ❌ <strong><?= htmlspecialchars($product['reference']) ?></strong>: 
-                                    <?= htmlspecialchars($product['error']) ?>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php endif; ?>
                 </div>
             <?php endif; ?>
         <?php endif; ?>
