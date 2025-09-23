@@ -7,7 +7,7 @@ class BricomanProductScraper {
     ];
     private $pictograms = [];
     
-    // Łatwo konfigurowalna lista cech do wykluczenia
+    // Lista cech do wykluczenia
     private $excluded_features = [
         'Kraj odpowiedzialnego podmiotu gospodarczego produktu w UE',
         'Głębokość transport',
@@ -16,7 +16,11 @@ class BricomanProductScraper {
         'Rodzina kolorów',
         'Kolor rodzina',
         'Kod dostawcy',
-        'Referencja dostawcy'
+        'Referencja dostawcy',
+		'Styl płytek',
+		'Rektyfikacja [tak/nie]',
+		'Grupa wymiarowa',
+		'Gama kolorystyczna'
         // Tutaj możesz dodać więcej cech do wykluczenia
         // Wystarczy dopisać nową linię z nazwą cechy
     ];
@@ -105,16 +109,22 @@ class BricomanProductScraper {
             $data['title'][0] = strip_tags(trim($match[1]));
         }
         
-        $image_patterns = [
-            '/<img[^>]*class="[^"]*b-product-carousel__main-slide swiper-slide[^"]*"[^>]*src="([^"]*\.(jpg|jpeg|png|gif))"[^>]*>/i',
-            '/<img[^>]*class="[^"]*b-product-carousel__main-slide swiper-slide[^"]*"[^>]*data-src="([^"]*\.(jpg|jpeg|png|gif))"[^>]*>/i',
-            '/<div[^>]*class="[^"]*b-product-carousel__main-slide-image[^"]*"[^>]*>.*?<img[^>]*src="([^"]*\.(jpg|jpeg|png|gif))"[^>]*>/is'
-        ];
+        // Najpierw próbujemy znaleźć obraz przez metodę _picture.jpeg
+        $data['product_picture'] = $this->extractProductPicture($html, $reference_number);
         
-        foreach ($image_patterns as $pattern) {
-            if (preg_match($pattern, $html, $match)) {
-                $data['product_picture'] = $this->normalizeUrl($match[1]);
-                break;
+        // Jeśli nie znaleziono przez _picture.jpeg, używamy starych metod
+        if (!$data['product_picture']) {
+            $image_patterns = [
+                '/<img[^>]*class="[^"]*b-product-carousel__main-slide swiper-slide[^"]*"[^>]*src="([^"]*\.(jpg|jpeg|png|gif))"[^>]*>/i',
+                '/<img[^>]*class="[^"]*b-product-carousel__main-slide swiper-slide[^"]*"[^>]*data-src="([^"]*\.(jpg|jpeg|png|gif))"[^>]*>/i',
+                '/<div[^>]*class="[^"]*b-product-carousel__main-slide-image[^"]*"[^>]*>.*?<img[^>]*src="([^"]*\.(jpg|jpeg|png|gif))"[^>]*>/is'
+            ];
+            
+            foreach ($image_patterns as $pattern) {
+                if (preg_match($pattern, $html, $match)) {
+                    $data['product_picture'] = $this->normalizeUrl($match[1]);
+                    break;
+                }
             }
         }
         
@@ -135,6 +145,52 @@ class BricomanProductScraper {
         $data['pictograms'] = $this->pictograms;
         
         return $data;
+    }
+
+     private function extractProductPicture($html, $reference_number) {
+        // Szukamy bezpośrednio w HTML obrazów z _picture.jpeg
+        $pattern = '/<img[^>]*(?:src|data-src)="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture\.jpeg[^"]*)"[^>]*>/i';
+        
+        if (preg_match($pattern, $html, $match)) {
+            $url = $this->cleanImageUrl($match[1]);
+            return $this->normalizeUrl($url);
+        }
+        
+        // Alternatywnie szukamy w data-src lub innych
+        $patterns = [
+            '/<img[^>]*data-src="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture\.jpeg[^"]*)"[^>]*>/i',
+            '/<img[^>]*src="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture\.jpeg[^"]*)"[^>]*>/i',
+            '/<div[^>]*data-image="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture\.jpeg[^"]*)"[^>]*>/i'
+        ];
+        
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $html, $match)) {
+                $url = $this->cleanImageUrl($match[1]);
+                $image_url = $this->normalizeUrl($url);
+                if ($this->checkImageExists($image_url)) {
+                    return $image_url;
+                }
+            }
+        }
+        
+        return null;
+    }
+
+    private function cleanImageUrl($url) {
+        // Usuwa wszystko po .jpeg (włącznie z parametrami zapytania)
+        if (strpos($url, '.jpeg?') !== false) {
+            $url = substr($url, 0, strpos($url, '.jpeg?') + 5); // +5 aby zachować ".jpeg"
+        }
+        // Alternatywnie dla .jpg
+        if (strpos($url, '.jpg?') !== false) {
+            $url = substr($url, 0, strpos($url, '.jpg?') + 4); // +4 aby zachować ".jpg"
+        }
+        return $url;
+    }
+
+    private function checkImageExists($url) {
+        return true;
+        
     }
 
     private function normalizeUrl($url) {
@@ -195,7 +251,7 @@ class BricomanProductScraper {
     private function extractTechnicalSpecifications($html) {
         $specs = [];
         
-        // Szukaj sekcji "Cechy produktu" - specyficzny pattern dla Bricoman
+        // Szukaj sekcji "Cechy produktu"
         if (preg_match('/<h3[^>]*>[^<]*Cechy produktu[^<]*<\/h3>(.*?)<(h3|div|section)/is', $html, $section_match)) {
             $specs_section = $section_match[1];
             
@@ -243,9 +299,6 @@ class BricomanProductScraper {
         return $specs;
     }
     
-    /**
-     * Sprawdza czy dana cecha powinna być wykluczona
-     */
     private function shouldExcludeFeature($label) {
         $label = trim($label);
         foreach ($this->excluded_features as $excluded) {
@@ -257,18 +310,12 @@ class BricomanProductScraper {
         return false;
     }
     
-    /**
-     * Metoda umożliwiająca dynamiczne dodawanie wykluczeń
-     */
     public function addExcludedFeature($feature) {
         if (!in_array($feature, $this->excluded_features)) {
             $this->excluded_features[] = $feature;
         }
     }
     
-    /**
-     * Metoda umożliwiająca usuwanie wykluczeń
-     */
     public function removeExcludedFeature($feature) {
         $key = array_search($feature, $this->excluded_features);
         if ($key !== false) {
@@ -277,9 +324,6 @@ class BricomanProductScraper {
         }
     }
     
-    /**
-     * Metoda zwracająca aktualną listę wykluczeń (dla debugowania)
-     */
     public function getExcludedFeatures() {
         return $this->excluded_features;
     }
@@ -438,12 +482,12 @@ class BricomanProductScraper {
             background: #f9f9f9;
             border-radius: 1mm;
             border: 0.3mm solid #da7625;
-            max-height: 20mm;
+            max-height: 22mm;
             overflow-y: auto;
         }
         .pictogram {
-            width: 18mm;
-            height: 18mm;
+            width: 20mm;
+            height: 20mm;
             object-fit: contain;
             padding: 0.5mm;
             background: white;
@@ -471,8 +515,8 @@ class BricomanProductScraper {
             overflow: hidden;
         }
         .product-image {
-            max-height: 25mm;
-            max-width: 25mm;
+            max-height: 22mm;
+            max-width: 55mm;
             object-fit: contain;
         }
         .section-title {
@@ -631,9 +675,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             if (count($reference_numbers) > 0) {
                 $scraper = new BricomanProductScraper();
-                
-                // Przykład: $scraper->addExcludedFeature('Nowa cecha do wykluczenia');
-                
+                               
                 $products_data = [];
                 $found_products = [];
                 $not_found_products = [];
@@ -680,7 +722,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'not_found_count' => count($not_found_products),
                             'found_products' => $found_products,
                             'not_found_products' => $not_found_products,
-                            'excluded_features' => $scraper->getExcludedFeatures() // Pokazuje użyte wykluczenia
+                            'excluded_features' => $scraper->getExcludedFeatures()
                         ];
                     } else {
                         $result = ['error' => 'Nie udało się zapisać pliku'];
@@ -703,119 +745,377 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Karty techniczne A5 - Bricoman</title>
+    <title>MoKaTe <sup>Moje Karty Techniczne</sup></title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .search-form { background: #e8f4fc; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        body { 
+            font-family: 'Open Sans', Arial, sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            background: #f5f5f5; 
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            background: white; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+        }
+        
+        .header { 
+            background: linear-gradient(135deg, #FF7d32 0%, #e66a22 100%); 
+            color: white; 
+            padding: 30px 40px; 
+            text-align: center; 
+        }
+        
+        .header h1 { 
+            margin: 0; 
+            font-size: 32px; 
+            font-weight: 700; 
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .header-subtitle {
+            font-size: 18px;
+            margin-top: 10px;
+            opacity: 0.9;
+            font-weight: 300;
+        }
+        
+        .content { 
+            padding: 40px; 
+        }
+        
+        .search-form { 
+            background: #fff; 
+            padding: 30px; 
+            border: 2px solid #e9ecef; 
+            border-radius: 8px; 
+            margin-bottom: 30px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .form-group { 
+            margin-bottom: 25px; 
+        }
+        
+        label { 
+            display: block; 
+            margin-bottom: 10px; 
+            font-weight: 600; 
+            color: #495057; 
+            font-size: 16px;
+        }
+        
         textarea { 
             width: 100%; 
-            height: 120px; 
-            padding: 12px; 
-            border: 2px solid #3498db; 
+            height: 160px; 
+            padding: 15px; 
+            border: 2px solid #ced4da; 
             border-radius: 6px; 
-            font-size: 14px; 
-            font-family: Arial, sans-serif;
+            font-size: 15px; 
+            font-family: 'Open Sans', Arial, sans-serif;
             resize: vertical;
             box-sizing: border-box;
+            transition: all 0.3s ease;
+            line-height: 1.5;
         }
-        button { 
-            padding: 12px 24px; 
-            background: #3498db; 
+        
+        textarea:focus { 
+            border-color: #FF7d32; 
+            outline: none; 
+            box-shadow: 0 0 0 3px rgba(255, 125, 50, 0.1);
+        }
+        
+        textarea::placeholder {
+            color: #6c757d;
+            font-style: italic;
+        }
+        
+        .btn-primary {
+            padding: 15px 35px; 
+            background: linear-gradient(135deg, #FF7d32 0%, #e66a22 100%); 
             color: white; 
             border: none; 
             border-radius: 6px; 
             cursor: pointer; 
             font-size: 16px; 
-            margin-top: 10px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
         }
-        button:hover { background: #2980b9; }
-        .error { background: #ffebee; color: #c62828; padding: 15px; border-radius: 6px; margin: 10px 0; }
-        .success { background: #e8f5e8; color: #2e7d32; padding: 15px; border-radius: 6px; margin: 10px 0; }
-        .info { background: #e3f2fd; color: #1565c0; padding: 15px; border-radius: 6px; margin: 10px 0; }
-        .products-list { margin: 10px 0; }
-        .product-item { padding: 8px; border-bottom: 1px solid #eee; }
-        .product-found { color: #2e7d32; }
-        .product-not-found { color: #c62828; }
-        .instructions { background: #fff3e0; padding: 15px; border-radius: 6px; margin-bottom: 15px; }
-        .excluded-features { background: #f0f0f0; padding: 10px; border-radius: 5px; margin: 10px 0; font-size: 12px; }
+        
+        .btn-primary:hover { 
+            background: linear-gradient(135deg, #e66a22 0%, #d45a1a 100%); 
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255, 125, 50, 0.3);
+        }
+        
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+        
+        .instructions { 
+            background: #f8f9fa; 
+            padding: 25px; 
+            border-radius: 8px; 
+            margin-bottom: 30px; 
+            border-left: 4px solid #FF7d32;
+        }
+        
+        .instructions h3 { 
+            color: #FF7d32; 
+            margin-top: 0; 
+            font-size: 20px;
+            font-weight: 600;
+        }
+        
+        .alert {
+            padding: 0px 5px 0px 5px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid;
+        }
+        
+        .alert-error { 
+            background: #ffeaea; 
+            color: #d32f2f; 
+            border-left-color: #d32f2f;
+        }
+        
+        .alert-success { 
+            background: #f0fff0; 
+            color: #2e7d32; 
+            border-left-color: #4caf50;
+        }
+        
+        .alert-info { 
+            background: #e8f4fd; 
+            color: #1976d2; 
+            border-left-color: #1976d2;
+        }
+        
+        .products-list { 
+            margin: 20px 0; 
+        }
+        
+        .product-item { 
+            padding: 12px 15px; 
+            border-bottom: 1px solid #eee; 
+            display: flex; 
+            align-items: center;
+            transition: background-color 0.2s;
+        }
+        
+        .product-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .product-found { 
+            color: #2e7d32; 
+        }
+        
+        .product-not-found { 
+            color: #d32f2f; 
+        }
+        
+        .download-section { 
+            text-align: center;  
+            padding: 15px; 
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
+            border-radius: 8px; 
+            border: 2px dashed #ced4da;
+        }
+        
+        .download-link { 
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 10px; 
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
+            color: white; 
+            text-decoration: none; 
+            border-radius: 6px; 
+            font-weight: 600; 
+            font-size: 18px; 
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .download-link:hover { 
+            background: linear-gradient(135deg, #20c997 0%, #1ea87a 100%); 
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+            text-decoration: none;
+            color: white;
+        }
+        
+        .stats { 
+            margin-bottom: 20px; 
+            text-align: center;
+        }
+        
+        .stats strong {
+            color: #FF7d32;
+            font-size: 1.2em;
+        }
+        
+        .excluded-features { 
+            background: #f8f9fa; 
+            padding: 20px; 
+            border-radius: 8px; 
+            margin: 25px 0; 
+            font-size: 14px; 
+            border: 1px solid #e9ecef;
+        }
+        
+        .excluded-features strong {
+            color: #495057;
+            display: block;
+            margin-bottom: 10px;
+            font-size: 15px;
+        }
+        
+        /* Responsywność */
+        @media (max-width: 768px) {
+            .content {
+                padding: 20px;
+            }
+            
+            .header {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 24px;
+            }
+            
+            .search-form {
+                padding: 20px;
+            }
+            
+            .btn-primary, .download-link {
+                width: 100%;
+                justify-content: center;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1 style="text-align: center; color: #2c3e50;">🔍 Karty techniczne A5</h1>
-        
-        <div class="instructions">
-            <h3>📋 Instrukcja:</h3>
-            <p>Wpisz numery referencyjne produktów (jeden pod drugim lub oddzielone przecinkami/spacjami).</p>
-            <p>System wygeneruje wielostronicowy plik z kartami produktów (2 karty na stronie A4 w orientacji poziomej).</p>
+        <div class="header">
+            <h1>MoKaTe - Moje Karty Techniczne</h1>
+            <div class="header-subtitle">Generator kart produktów dla płytki / panele i coś jeszcze</div>
         </div>
         
-        <div class="search-form">
-            <form method="POST">
-                <label for="reference_numbers"><strong>Numery referencyjne:</strong></label><br>
-                <textarea name="reference_numbers" placeholder="Wpisz numery referencyjne, np.: 123456, 789012, 345678" required><?= htmlspecialchars($_POST['reference_numbers'] ?? '') ?></textarea>
-                <br>
-                <button type="submit">Generuj karty</button>
-            </form>
-        </div>
+        <div class="content">
+            <div class="instructions">
+                <h3>📋 Instrukcja użycia</h3>
+                <p>Wpisz numery referencyjne produktów (jeden pod drugim lub oddzielone przecinkami/spacjami).</p>
+                <p>System automatycznie pobierze dane i wygeneruje wielostronicowy plik PDF z kartami produktów w formacie A5 (2 karty na stronie A4 w orientacji poziomej).</p>
+            </div>
+            
+            <div class="search-form">
+                <form method="POST">
+                    <div class="form-group">
+                        <label for="reference_numbers">Numery referencyjne produktów:</label>
+                        <textarea name="reference_numbers" placeholder="Wpisz numery referencyjne, np.:
+➤ 123456
+➤ 789012  
+➤ 345678
 
-        <?php if (isset($result)): ?>
-            <?php if (isset($result['error'])): ?>
-                <div class="error">
-                    <h3>❌ Błąd</h3>
-                    <p><?= htmlspecialchars($result['error']) ?></p>
-                </div>
-            <?php else: ?>
-                <div class="success">
-                    <h3>✅ Gotowe!</h3>
-                    <p>Wygenerowano karty dla <strong><?= $result['found_count'] ?></strong> produktów.
-                    <?php if ($result['not_found_count'] > 0): ?>
-                         Pominięto lub nie znaleziono <strong><?= $result['not_found_count'] ?></strong> produktów.
-                    <?php endif; ?>
-                    </p>
-                    <p><a href="<?= htmlspecialchars($result['filename']) ?>" download style="color: #FF7d32; text-decoration: none; font-size: 2.0rem; font-weight: bold;">
-                        📥 Pobierz kartę produktów
-                    </a></p>
-                    
-                    <?php if (!empty($result['found_products'])): ?>
-                        <div class="products-list">
-                            <h4>Znalezione produkty:</h4>
-                            <?php foreach ($result['found_products'] as $product): ?>
-                                <div class="product-item product-found">
-                                    ✅ <strong><?= htmlspecialchars($product['reference']) ?></strong>: 
-                                    <a href="<?= htmlspecialchars($product['url']) ?>" target="_blank"><?= htmlspecialchars($product['title']) ?></a>
-                                </div>
-                            <?php endforeach; ?>
+Lub: 123456, 789012, 345678
+
+Każdy numer w nowej linii lub oddzielony przecinkiem/spacją." required><?= htmlspecialchars($_POST['reference_numbers'] ?? '') ?></textarea>
+                    </div>
+                    <button type="submit" class="btn-primary">
+                        🖨️ Generuj karty techniczne
+                    </button>
+                </form>
+            </div>
+
+            <?php if (isset($result)): ?>
+                <?php if (isset($result['error'])): ?>
+                    <div class="alert alert-error">
+                        <h3>❌ Wystąpił błąd</h3>
+                        <p><?= htmlspecialchars($result['error']) ?></p>
+                    </div>
+                <?php else: ?>
+                    <div class="alert alert-success">
+                        <div class="stats">
+                            <h3>✅ Generowanie zakończone pomyślnie!</h3>
+                            <p>Odnalezionych i wygenerowanych poprawnie: <strong><?= $result['found_count'] ?> </strong></p>
+                            <?php if ($result['not_found_count'] > 0): ?>
+                                <div class="alert alert-error"><p>Nie znaleziono: <strong><?= $result['not_found_count'] ?> </strong></p></div>
+                            <?php endif; ?>
                         </div>
-                    <?php endif; ?>
-                    
-                    <?php if (!empty($result['not_found_products'])): ?>
-                        <div class="products-list">
-                            <h4>Błędy:</h4>
-                            <?php foreach ($result['not_found_products'] as $product): ?>
-                                <div class="product-item product-not-found">
-                                    ❌ <strong><?= htmlspecialchars($product['reference']) ?></strong>: 
-                                    <?= htmlspecialchars($product['error']) ?>
-                                </div>
-                            <?php endforeach; ?>
+                        
+                        <div class="download-section">
+                            <a href="<?= htmlspecialchars($result['filename']) ?>" download class="download-link">
+                                📥 Pobierz KARTY TECHNICZNE
+                            </a>
+                            <p style="margin-top: 15px; color: #6c757d; font-size: 14px;">
+                                Rozmiar pliku: <?= round(filesize($result['filename']) / 1024 / 1024, 2) ?> MB
+                            </p>
                         </div>
-                    <?php endif; ?>
-                </div>
+                        
+                        <?php if (!empty($result['found_products'])): ?>
+                            <div class="products-list">
+                                <h4 style="color: #495057; margin-bottom: 15px;">📦 Pomyślnie przetworzone produkty:</h4>
+                                <?php foreach ($result['found_products'] as $product): ?>
+                                    <div class="product-item product-found">
+                                        <span style="margin-right: 12px; font-size: 18px;">✅</span>
+                                        <div>
+                                            <strong style="color: #FF7d32;"><?= htmlspecialchars($product['reference']) ?></strong> - 
+                                            <a href="<?= htmlspecialchars($product['url']) ?>" target="_blank" style="color: #495057; text-decoration: none;">
+                                                <?= htmlspecialchars($product['title']) ?>
+                                            </a>
+                                            <span style="color: #6c757d; font-size: 13px; margin-left: 10px;">
+                                                (<?= htmlspecialchars($product['brand'] ?? 'Brak marki') ?>)
+                                            </span>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <?php if (!empty($result['not_found_products'])): ?>
+                            <div class="products-list">
+                                <h4 style="color: #495057; margin-bottom: 15px;">⚠️ Produkty, których nie udało się przetworzyć:</h4>
+                                <?php foreach ($result['not_found_products'] as $product): ?>
+                                    <div class="product-item product-not-found">
+                                        <span style="margin-right: 12px; font-size: 18px;">❌</span>
+                                        <div>
+                                            <strong style="color: #d32f2f;"><?= htmlspecialchars($product['reference']) ?></strong> - 
+                                            <?= htmlspecialchars($product['error']) ?>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
             <?php endif; ?>
-        <?php endif; ?>
-		
-		<div class="instructions">
-		<div class="excluded-features">
-                <strong>🚫 Aktualnie wykluczone cechy:</strong><br>
-                <?php
+            
+            <div class="excluded-features">
+                <strong>ℹ️ Aktualnie wykluczone z kart technicznych cechy:</strong>
+                <div style="color: #6c757d; line-height: 1.8;">
+                    <?php
                 $scraper_temp = new BricomanProductScraper();
                 $excluded = $scraper_temp->getExcludedFeatures();
                 echo implode(', ', $excluded);
                 ?>
-				
+                </div>
             </div>
-			</div>
+        </div>
     </div>
 </body>
 </html>
