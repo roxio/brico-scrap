@@ -680,35 +680,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $found_products = [];
                 $not_found_products = [];
                 
-                foreach ($reference_numbers as $reference_number) {
-                    $product_url = $scraper->findProductByReference($reference_number);
-                    
-                    if ($product_url) {
-                        $product_data = $scraper->getProductData($product_url, $reference_number);
-                        
-                        if (!isset($product_data['error'])) {
-                            $products_data[] = $product_data;
-                            $found_products[] = [
-                                'reference' => $reference_number,
-                                'url' => $product_url,
-                                'title' => $product_data['title'][0]
-                            ];
-                        } else {
-                            $not_found_products[] = [
-                                'reference' => $reference_number,
-                                'error' => $product_data['error']
-                            ];
-                        }
-                    } else {
-                        $not_found_products[] = [
-                            'reference' => $reference_number,
-                            'error' => 'Nie znaleziono produktu'
-                        ];
-                    }
-                    
-                    // Małe opóźnienie między żądaniami, aby nie przeciążyć serwera
-                    usleep(500000); // 0.5 sekundy
-                }
+             foreach ($reference_numbers as $reference_number) {
+    if (preg_match('/^https?:\/\//i', $reference_number)) {
+        // użytkownik podał pełny link
+        $product_url = trim($reference_number);
+
+        // Spróbujmy wyciągnąć numer referencyjny z URL
+        if (preg_match('/(\d+)/', $product_url, $ref_match)) {
+            $reference_number = $ref_match[1];
+        }
+    } else {
+        // standardowe szukanie po numerze w sitemap
+        $product_url = $scraper->findProductByReference($reference_number);
+    }
+
+    if ($product_url) {
+        $product_data = $scraper->getProductData($product_url, $reference_number);
+        
+        if (!isset($product_data['error'])) {
+            $products_data[] = $product_data;
+            $found_products[] = [
+                'reference' => $reference_number,
+                'url' => $product_url,
+                'title' => $product_data['title'][0]
+            ];
+        } else {
+            $not_found_products[] = [
+                'reference' => $reference_number,
+                'error' => $product_data['error']
+            ];
+        }
+    } else {
+        $not_found_products[] = [
+            'reference' => $reference_number,
+            'error' => 'Nie znaleziono produktu'
+        ];
+    }
+
+    usleep(500000); // 0.5s przerwy
+}
                 
                 if (!empty($products_data)) {
                     $html_output = $scraper->generateMultiProductHtmlTemplate($products_data);
