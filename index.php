@@ -685,9 +685,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // użytkownik podał pełny link
         $product_url = trim($reference_number);
 
-        // Spróbujmy wyciągnąć numer referencyjny z URL
-        if (preg_match('/(\d+)/', $product_url, $ref_match)) {
-            $reference_number = $ref_match[1];
+        // Spróbujmy wyciągnąć numer referencyjny z URL - TYLKO OSTATNIE CYFRY
+        if (preg_match_all('/(\d+)/', $product_url, $ref_matches)) {
+            $all_numbers = $ref_matches[1];
+            // Weź ostatnią grupę cyfr (najprawdopodobniej numer referencyjny)
+            $reference_number = end($all_numbers);
         }
     } else {
         // standardowe szukanie po numerze w sitemap
