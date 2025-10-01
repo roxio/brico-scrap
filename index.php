@@ -757,267 +757,104 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>MoKaTe <sup>Moje Karty Techniczne</sup></title>
+    <title>MoKaTe - Moje Karty Techniczne</title>
     <style>
         body { 
-            font-family: 'Open Sans', Arial, sans-serif; 
-            margin: 0; 
-            padding: 0; 
-            background: #f5f5f5; 
+            font-family: Arial, sans-serif; 
+            background: #fff; 
+            margin: 20px;
             color: #333;
-            line-height: 1.6;
         }
         
         .container { 
-            max-width: 1200px; 
+            max-width: 800px; 
             margin: 0 auto; 
-            background: white; 
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
         }
         
         .header { 
-            background: linear-gradient(135deg, #FF7d32 0%, #e66a22 100%); 
+            background: #e67e22; 
             color: white; 
-            padding: 30px 40px; 
-            text-align: center; 
+            padding: 15px; 
+            text-align: center;
+            margin-bottom: 20px;
         }
         
-        .header h1 { 
-            margin: 0; 
-            font-size: 32px; 
-            font-weight: 700; 
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        .header-subtitle {
-            font-size: 18px;
-            margin-top: 10px;
-            opacity: 0.9;
-            font-weight: 300;
-        }
-        
-        .content { 
-            padding: 40px; 
+        .instructions { 
+            background: #f9f9f9; 
+            padding: 15px; 
+            margin-bottom: 20px; 
+            border-left: 3px solid #e67e22;
         }
         
         .search-form { 
-            background: #fff; 
-            padding: 30px; 
-            border: 2px solid #e9ecef; 
-            border-radius: 8px; 
-            margin-bottom: 30px; 
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-        
-        .form-group { 
-            margin-bottom: 25px; 
-        }
-        
-        label { 
-            display: block; 
-            margin-bottom: 10px; 
-            font-weight: 600; 
-            color: #495057; 
-            font-size: 16px;
+            margin-bottom: 20px; 
         }
         
         textarea { 
             width: 100%; 
-            height: 160px; 
-            padding: 15px; 
-            border: 2px solid #ced4da; 
-            border-radius: 6px; 
-            font-size: 15px; 
-            font-family: 'Open Sans', Arial, sans-serif;
-            resize: vertical;
-            box-sizing: border-box;
-            transition: all 0.3s ease;
-            line-height: 1.5;
-        }
-        
-        textarea:focus { 
-            border-color: #FF7d32; 
-            outline: none; 
-            box-shadow: 0 0 0 3px rgba(255, 125, 50, 0.1);
-        }
-        
-        textarea::placeholder {
-            color: #6c757d;
-            font-style: italic;
+            height: 120px; 
+            padding: 10px; 
+            border: 1px solid #ccc; 
+            margin-bottom: 10px;
         }
         
         .btn-primary {
-            padding: 15px 35px; 
-            background: linear-gradient(135deg, #FF7d32 0%, #e66a22 100%); 
+            padding: 10px 20px; 
+            background: #e67e22; 
             color: white; 
             border: none; 
-            border-radius: 6px; 
             cursor: pointer; 
-            font-size: 16px; 
-            font-weight: 600;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
         }
         
         .btn-primary:hover { 
-            background: linear-gradient(135deg, #e66a22 0%, #d45a1a 100%); 
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(255, 125, 50, 0.3);
-        }
-        
-        .btn-primary:active {
-            transform: translateY(0);
-        }
-        
-        .instructions { 
-            background: #f8f9fa; 
-            padding: 25px; 
-            border-radius: 8px; 
-            margin-bottom: 30px; 
-            border-left: 4px solid #FF7d32;
-        }
-        
-        .instructions h3 { 
-            color: #FF7d32; 
-            margin-top: 0; 
-            font-size: 20px;
-            font-weight: 600;
+            background: #d35400; 
         }
         
         .alert {
-            padding: 0px 5px 0px 5px;
-            border-radius: 8px;
-            margin: 20px 0;
-            border-left: 4px solid;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid;
         }
         
         .alert-error { 
             background: #ffeaea; 
-            color: #d32f2f; 
-            border-left-color: #d32f2f;
+            border-left-color: #c0392b;
         }
         
         .alert-success { 
             background: #f0fff0; 
-            color: #2e7d32; 
-            border-left-color: #4caf50;
-        }
-        
-        .alert-info { 
-            background: #e8f4fd; 
-            color: #1976d2; 
-            border-left-color: #1976d2;
-        }
-        
-        .products-list { 
-            margin: 20px 0; 
-        }
-        
-        .product-item { 
-            padding: 12px 15px; 
-            border-bottom: 1px solid #eee; 
-            display: flex; 
-            align-items: center;
-            transition: background-color 0.2s;
-        }
-        
-        .product-item:hover {
-            background: #f8f9fa;
-        }
-        
-        .product-found { 
-            color: #2e7d32; 
-        }
-        
-        .product-not-found { 
-            color: #d32f2f; 
+            border-left-color: #27ae60;
         }
         
         .download-section { 
             text-align: center;  
             padding: 15px; 
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
-            border-radius: 8px; 
-            border: 2px dashed #ced4da;
+            background: #f0f8f0; 
+            margin: 15px 0;
         }
         
         .download-link { 
-            display: inline-flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 10px; 
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
+            display: inline-block;
+            padding: 10px 15px; 
+            background: #27ae60; 
             color: white; 
             text-decoration: none; 
-            border-radius: 6px; 
-            font-weight: 600; 
-            font-size: 18px; 
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
         }
         
-        .download-link:hover { 
-            background: linear-gradient(135deg, #20c997 0%, #1ea87a 100%); 
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
-            text-decoration: none;
-            color: white;
+        .products-list { 
+            margin: 10px 0; 
         }
         
-        .stats { 
-            margin-bottom: 20px; 
-            text-align: center;
-        }
-        
-        .stats strong {
-            color: #FF7d32;
-            font-size: 1.2em;
+        .product-item { 
+            padding: 8px 0; 
+            border-bottom: 1px solid #eee; 
         }
         
         .excluded-features { 
-            background: #f8f9fa; 
-            padding: 20px; 
-            border-radius: 8px; 
-            margin: 25px 0; 
-            font-size: 14px; 
-            border: 1px solid #e9ecef;
-        }
-        
-        .excluded-features strong {
-            color: #495057;
-            display: block;
-            margin-bottom: 10px;
-            font-size: 15px;
-        }
-        
-        /* Responsywność */
-        @media (max-width: 768px) {
-            .content {
-                padding: 20px;
-            }
-            
-            .header {
-                padding: 20px;
-            }
-            
-            .header h1 {
-                font-size: 24px;
-            }
-            
-            .search-form {
-                padding: 20px;
-            }
-            
-            .btn-primary, .download-link {
-                width: 100%;
-                justify-content: center;
-            }
+            background: #f9f9f9; 
+            padding: 10px; 
+            margin: 15px 0; 
+            font-size: 12px; 
         }
     </style>
 </head>
@@ -1025,108 +862,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="container">
         <div class="header">
             <h1>MoKaTe - Moje Karty Techniczne</h1>
-            <div class="header-subtitle">Generator kart produktów dla płytki / panele i coś jeszcze</div>
         </div>
         
-        <div class="content">
-            <div class="instructions">
-                <h3>📋 Instrukcja użycia</h3>
-                <p>Wpisz numery referencyjne produktów (jeden pod drugim lub oddzielone przecinkami/spacjami).</p>
-                <p>System automatycznie pobierze dane i wygeneruje wielostronicowy plik PDF z kartami produktów w formacie A5 (2 karty na stronie A4 w orientacji poziomej).</p>
-            </div>
-            
-            <div class="search-form">
-                <form method="POST">
-                    <div class="form-group">
-                        <label for="reference_numbers">Numery referencyjne produktów:</label>
-                        <textarea name="reference_numbers" placeholder="Wpisz numery referencyjne, np.:
-➤ 123456
-➤ 789012  
-➤ 345678
+        <div class="instructions">
+            <strong>Instrukcja:</strong> Wpisz numery referencyjne produktów (jeden pod drugim lub oddzielone przecinkami/spacjami).
+        </div>
+        
+        <div class="search-form">
+            <form method="POST">
+                <textarea name="reference_numbers" placeholder="Numery referencyjne, np.:&#10;123456&#10;789012&#10;345678" required><?= htmlspecialchars($_POST['reference_numbers'] ?? '') ?></textarea>
+                <button type="submit" class="btn-primary">Generuj karty techniczne</button>
+            </form>
+        </div>
 
-Lub: 123456, 789012, 345678
-
-Każdy numer w nowej linii lub oddzielony przecinkiem/spacją." required><?= htmlspecialchars($_POST['reference_numbers'] ?? '') ?></textarea>
-                    </div>
-                    <button type="submit" class="btn-primary">
-                        🖨️ Generuj karty techniczne
-                    </button>
-                </form>
-            </div>
-
-            <?php if (isset($result)): ?>
-                <?php if (isset($result['error'])): ?>
-                    <div class="alert alert-error">
-                        <h3>❌ Wystąpił błąd</h3>
-                        <p><?= htmlspecialchars($result['error']) ?></p>
-                    </div>
-                <?php else: ?>
-                    <div class="alert alert-success">
-                        <div class="stats">
-                            <h3>✅ Generowanie zakończone pomyślnie!</h3>
-                            <p>Odnalezionych i wygenerowanych poprawnie: <strong><?= $result['found_count'] ?> </strong></p>
-                            <?php if ($result['not_found_count'] > 0): ?>
-                                <div class="alert alert-error"><p>Nie znaleziono: <strong><?= $result['not_found_count'] ?> </strong></p></div>
-                            <?php endif; ?>
-                        </div>
-                        
-                        <div class="download-section">
-                            <a href="<?= htmlspecialchars($result['filename']) ?>" download class="download-link">
-                                📥 Pobierz KARTY TECHNICZNE
-                            </a>
-                            <p style="margin-top: 15px; color: #6c757d; font-size: 14px;">
-                                Rozmiar pliku: <?= round(filesize($result['filename']) / 1024 / 1024, 2) ?> MB
-                            </p>
-                        </div>
-                        
-                        <?php if (!empty($result['found_products'])): ?>
-                            <div class="products-list">
-                                <h4 style="color: #495057; margin-bottom: 15px;">📦 Pomyślnie przetworzone produkty:</h4>
-                                <?php foreach ($result['found_products'] as $product): ?>
-                                    <div class="product-item product-found">
-                                        <span style="margin-right: 12px; font-size: 18px;">✅</span>
-                                        <div>
-                                            <strong style="color: #FF7d32;"><?= htmlspecialchars($product['reference']) ?></strong> - 
-                                            <a href="<?= htmlspecialchars($product['url']) ?>" target="_blank" style="color: #495057; text-decoration: none;">
-                                                <?= htmlspecialchars($product['title']) ?>
-                                            </a>
-                                            <span style="color: #6c757d; font-size: 13px; margin-left: 10px;">
-                                                (<?= htmlspecialchars($product['brand'] ?? 'Brak marki') ?>)
-                                            </span>
-                                        </div>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-                        
-                        <?php if (!empty($result['not_found_products'])): ?>
-                            <div class="products-list">
-                                <h4 style="color: #495057; margin-bottom: 15px;">⚠️ Produkty, których nie udało się przetworzyć:</h4>
-                                <?php foreach ($result['not_found_products'] as $product): ?>
-                                    <div class="product-item product-not-found">
-                                        <span style="margin-right: 12px; font-size: 18px;">❌</span>
-                                        <div>
-                                            <strong style="color: #d32f2f;"><?= htmlspecialchars($product['reference']) ?></strong> - 
-                                            <?= htmlspecialchars($product['error']) ?>
-                                        </div>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                <?php endif; ?>
-            <?php endif; ?>
-            
-            <div class="excluded-features">
-                <strong>ℹ️ Aktualnie wykluczone z kart technicznych cechy:</strong>
-                <div style="color: #6c757d; line-height: 1.8;">
-                    <?php
-                $scraper_temp = new BricomanProductScraper();
-                $excluded = $scraper_temp->getExcludedFeatures();
-                echo implode(', ', $excluded);
-                ?>
+        <?php if (isset($result)): ?>
+            <?php if (isset($result['error'])): ?>
+                <div class="alert alert-error">
+                    <strong>Błąd:</strong> <?= htmlspecialchars($result['error']) ?>
                 </div>
-            </div>
+            <?php else: ?>
+                <div class="alert alert-success">
+                    <strong>Sukces!</strong> Znaleziono: <?= $result['found_count'] ?> 
+                    <?php if ($result['not_found_count'] > 0): ?>
+                        | Nie znaleziono: <?= $result['not_found_count'] ?>
+                    <?php endif; ?>
+                    
+                    <div class="download-section">
+                        <a href="<?= htmlspecialchars($result['filename']) ?>" download class="download-link">
+                            Pobierz plik HTML
+                        </a>
+                    </div>
+                    
+                    <?php if (!empty($result['found_products'])): ?>
+                        <div class="products-list">
+                            <strong>Znalezione produkty:</strong>
+                            <?php foreach ($result['found_products'] as $product): ?>
+                                <div class="product-item">✅ <?= htmlspecialchars($product['reference']) ?> - <?= htmlspecialchars($product['title']) ?></div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
+        <?php endif; ?>
+        
+        <div class="excluded-features">
+            <strong>Wykluczone cechy:</strong> 
+            <?php
+            $scraper_temp = new BricomanProductScraper();
+            $excluded = $scraper_temp->getExcludedFeatures();
+            echo implode(', ', $excluded);
+            ?>
         </div>
     </div>
 </body>
