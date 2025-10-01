@@ -20,6 +20,9 @@ class BricomanProductScraper {
 		'Styl płytek',
 		'Rektyfikacja [tak/nie]',
 		'Grupa wymiarowa',
+		'Funkcja antypoślizgowa',
+		'Odporność na zużycie',
+		'Kolor',
 		'Gama kolorystyczna'
         // Tutaj możesz dodać więcej cech do wykluczenia
         // Wystarczy dopisać nową linię z nazwą cechy
@@ -450,7 +453,7 @@ class BricomanProductScraper {
             font-size: 8pt;
         }
         .table_product_data td {
-            border: 0.7px solid #03195c;
+            border: 0.7px solid #6c6c6c;
             padding: 1mm;
         }
         .title_data {
@@ -486,14 +489,12 @@ class BricomanProductScraper {
             overflow-y: auto;
         }
         .pictogram {
-            width: 20mm;
-            height: 20mm;
+            width: 21mm;
+            height: 21mm;
             object-fit: contain;
             padding: 0.5mm;
             background: white;
-            border: 0.5px solid #ddd;
-            border-radius: 1mm;
-        }
+            }
         .print-info {
             position: absolute;
             bottom: 1mm;
