@@ -24,8 +24,6 @@ class BricomanProductScraper {
 		'Odporność na zużycie',
 		'Kolor',
 		'Gama kolorystyczna'
-        // Tutaj możesz dodać więcej cech do wykluczenia
-        // Wystarczy dopisać nową linię z nazwą cechy
     ];
     
     public function findProductByReference($reference_number) {
@@ -112,10 +110,8 @@ class BricomanProductScraper {
             $data['title'][0] = strip_tags(trim($match[1]));
         }
         
-        // Najpierw próbujemy znaleźć obraz przez metodę _picture.jpeg
         $data['product_picture'] = $this->extractProductPicture($html, $reference_number);
         
-        // Jeśli nie znaleziono przez _picture.jpeg, używamy starych metod
         if (!$data['product_picture']) {
             $image_patterns = [
                 '/<img[^>]*class="[^"]*b-product-carousel__main-slide swiper-slide[^"]*"[^>]*src="([^"]*\.(jpg|jpeg|png|gif))"[^>]*>/i',
@@ -159,11 +155,13 @@ class BricomanProductScraper {
             return $this->normalizeUrl($url);
         }
         
-        // Alternatywnie szukamy w data-src lub innych
         $patterns = [
             '/<img[^>]*data-src="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture\.jpeg[^"]*)"[^>]*>/i',
             '/<img[^>]*src="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture\.jpeg[^"]*)"[^>]*>/i',
-            '/<div[^>]*data-image="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture\.jpeg[^"]*)"[^>]*>/i'
+            '/<div[^>]*data-image="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture\.jpeg[^"]*)"[^>]*>/i',
+			'/<img[^>]*data-src="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture_01\.jpeg[^"]*)"[^>]*>/i',
+            '/<img[^>]*src="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture_01\.jpeg[^"]*)"[^>]*>/i',
+            '/<div[^>]*data-image="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture_01\.jpeg[^"]*)"[^>]*>/i'
         ];
         
         foreach ($patterns as $pattern) {
@@ -333,8 +331,8 @@ class BricomanProductScraper {
     
     private function parseFeatureItem($li) {
         // Parsuj element listy cech produktu
-        $text = strip_tags($li, '<img>'); // Zachowaj tagi img
-        $text = preg_replace('/<img[^>]*>/', '', $text); // Usuń obrazy z tekstu
+        $text = strip_tags($li, '<img>');
+        $text = preg_replace('/<img[^>]*>/', '', $text);
         $text = trim($text);
         
         if (!empty($text)) {
