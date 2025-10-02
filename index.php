@@ -1,4 +1,7 @@
 <?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 class BricomanProductScraper {
     private $base_url = "https://www.bricoman.pl";
     private $sitemap_urls = [
@@ -25,6 +28,102 @@ class BricomanProductScraper {
 		'Kolor',
 		'Gama kolorystyczna'
     ];
+    
+    private $files_directory = 'generated_files';
+    private $max_files = 20;
+    
+    public function __construct() {
+        if (!is_dir($this->files_directory)) {
+            if (!mkdir($this->files_directory, 0755, true)) {
+                error_log("Nie można utworzyć folderu: " . $this->files_directory);
+            }
+        }
+        
+        $this->cleanupOldFiles();
+    }
+    
+    public function getFilesDirectory() {
+        return $this->files_directory;
+    }
+    
+    private function cleanupOldFiles() {
+        try {
+            $files = glob($this->files_directory . '/*.html');
+            
+            if ($files && count($files) > $this->max_files) {
+                usort($files, function($a, $b) {
+                    return filemtime($a) - filemtime($b);
+                });
+                
+                $files_to_delete = count($files) - $this->max_files;
+                for ($i = 0; $i < $files_to_delete; $i++) {
+                    if (file_exists($files[$i]) && is_file($files[$i])) {
+                        unlink($files[$i]);
+                    }
+                }
+            }
+        } catch (Exception $e) {
+            error_log("Błąd przy czyszczeniu plików: " . $e->getMessage());
+        }
+    }
+    
+    public function getRecentFiles($limit = 10) {
+        try {
+            $files = glob($this->files_directory . '/*.html');
+            
+            if (empty($files)) {
+                return [];
+            }
+            
+            usort($files, function($a, $b) {
+                return filemtime($b) - filemtime($a);
+            });
+            
+            $recent_files = [];
+            foreach (array_slice($files, 0, $limit) as $file) {
+                if (file_exists($file)) {
+                    $filename = basename($file);
+                    $filetime = filemtime($file);
+                    $filesize = filesize($file);
+                    
+                    $recent_files[] = [
+                        'filename' => $filename,
+                        'path' => $file,
+                        'size' => $this->formatFileSize($filesize),
+                        'date' => date('d.m.Y H:i', $filetime),
+                        'url' => $this->files_directory . '/' . $filename
+                    ];
+                }
+            }
+            
+            return $recent_files;
+        } catch (Exception $e) {
+            error_log("Błąd przy pobieraniu listy plików: " . $e->getMessage());
+            return [];
+        }
+    }
+    
+    private function formatFileSize($bytes) {
+        if ($bytes == 0) return '0 B';
+        $units = ['B', 'KB', 'MB', 'GB'];
+        $i = floor(log($bytes, 1024));
+        return round($bytes / pow(1024, $i), 2) . ' ' . $units[$i];
+    }
+    
+    public function generateFilename($reference_numbers) {
+        $refs = array_slice($reference_numbers, 0, 3);
+        $filename_refs = implode('_', $refs);
+        
+        if (count($reference_numbers) > 3) {
+            $filename_refs .= '_and_' . (count($reference_numbers) - 3) . '_more';
+        }
+        
+        $filename_refs = preg_replace('/[^a-zA-Z0-9_-]/', '_', $filename_refs);
+        $filename_refs = substr($filename_refs, 0, 100);
+        
+        $timestamp = date('Y-m-d_H-i-s');
+        return "ref_{$filename_refs}_.html";
+    }
     
     public function findProductByReference($reference_number) {
         foreach ($this->sitemap_urls as $sitemap_url) {
@@ -89,7 +188,7 @@ class BricomanProductScraper {
         
         $response = @file_get_contents($url, false, $context);
         if ($response === false) {
-            throw new Exception("HTTP request failed");
+            throw new Exception("HTTP request failed for URL: " . $url);
         }
         return $response;
     }
@@ -147,7 +246,6 @@ class BricomanProductScraper {
     }
 
      private function extractProductPicture($html, $reference_number) {
-        // Szukamy bezpośrednio w HTML obrazów z _picture.jpeg
         $pattern = '/<img[^>]*(?:src|data-src)="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture\.jpeg[^"]*)"[^>]*>/i';
         
         if (preg_match($pattern, $html, $match)) {
@@ -178,11 +276,9 @@ class BricomanProductScraper {
     }
 
     private function cleanImageUrl($url) {
-        // Usuwa wszystko po .jpeg (włącznie z parametrami zapytania)
         if (strpos($url, '.jpeg?') !== false) {
             $url = substr($url, 0, strpos($url, '.jpeg?') + 5); // +5 aby zachować ".jpeg"
         }
-        // Alternatywnie dla .jpg
         if (strpos($url, '.jpg?') !== false) {
             $url = substr($url, 0, strpos($url, '.jpg?') + 4); // +4 aby zachować ".jpg"
         }
@@ -191,7 +287,6 @@ class BricomanProductScraper {
 
     private function checkImageExists($url) {
         return true;
-        
     }
 
     private function normalizeUrl($url) {
@@ -252,11 +347,9 @@ class BricomanProductScraper {
     private function extractTechnicalSpecifications($html) {
         $specs = [];
         
-        // Szukaj sekcji "Cechy produktu"
         if (preg_match('/<h3[^>]*>[^<]*Cechy produktu[^<]*<\/h3>(.*?)<(h3|div|section)/is', $html, $section_match)) {
             $specs_section = $section_match[1];
             
-            // Szukaj listy cech
             if (preg_match_all('/<li[^>]*>(.*?)<\/li>/is', $specs_section, $li_matches)) {
                 foreach ($li_matches[1] as $li) {
                     $spec = $this->parseFeatureItem($li);
@@ -267,7 +360,6 @@ class BricomanProductScraper {
             }
         }
         
-        // Jeśli nie znaleziono cech, szukaj w innych sekcjach
         if (empty($specs)) {
             $section_patterns = [
                 '/<div[^>]*class="[^"]*product-specifications[^"]*"[^>]*>(.*?)<\/div>/is',
@@ -303,7 +395,6 @@ class BricomanProductScraper {
     private function shouldExcludeFeature($label) {
         $label = trim($label);
         foreach ($this->excluded_features as $excluded) {
-            // Sprawdzanie częściowego dopasowania (case-insensitive)
             if (stripos($label, $excluded) !== false) {
                 return true;
             }
@@ -330,13 +421,11 @@ class BricomanProductScraper {
     }
     
     private function parseFeatureItem($li) {
-        // Parsuj element listy cech produktu
         $text = strip_tags($li, '<img>');
         $text = preg_replace('/<img[^>]*>/', '', $text);
         $text = trim($text);
         
         if (!empty($text)) {
-            // Podziel na label i value jeśli jest dwukropek
             if (strpos($text, ':') !== false) {
                 list($label, $value) = explode(':', $text, 2);
                 return [
@@ -391,9 +480,10 @@ class BricomanProductScraper {
         }
         return null;
     }
+    
     private function generateBarcode($code) {
-    return "https://barcode.tec-it.com/barcode.ashx?data=" . urlencode($code) . "&code=Code128&dpi=120&format=png&unit=px&height=35&width=200&hidehrt=TRUE";
-}
+        return "https://barcode.tec-it.com/barcode.ashx?data=" . urlencode($code) . "&code=Code128&dpi=120&format=png&unit=px&height=35&width=200&hidehrt=TRUE";
+    }
     
     public function generateMultiProductHtmlTemplate($products_data) {
         $html = '<!DOCTYPE html>
@@ -465,7 +555,6 @@ class BricomanProductScraper {
 			font-size: 11pt;
         }
         .brand-picture {
-            max-width: 20mm;
             max-height: 12mm;
             object-fit: contain;
         }
@@ -549,7 +638,6 @@ class BricomanProductScraper {
         $product_count = count($products_data);
         
         for ($i = 0; $i < $product_count; $i++) {
-            // Rozpocznij nową stronę co 2 produkty (oprócz pierwszego produktu)
             if ($i % 2 == 0 && $i > 0) {
                 $html .= '<div class="page-break"></div></div><div class="page">';
             } elseif ($i % 2 == 0) {
@@ -649,7 +737,6 @@ class BricomanProductScraper {
     </div>
 </div>';
 
-            // Jeśli to ostatni produkt i nieparzysta liczba, dodaj pustą kartę dla wyrównania
             if ($i == $product_count - 1 && $product_count % 2 != 0) {
                 $html .= '<div class="product-card" style="border: 1px dashed #ccc; background: #f9f9f9;"></div>';
             }
@@ -667,7 +754,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if (!empty($reference_numbers_input)) {
         try {
-            // Podziel wprowadzone numery referencyjne (po przecinku, spacjach lub nowych liniach)
             $reference_numbers = preg_split('/[\s,\n]+/', $reference_numbers_input, -1, PREG_SPLIT_NO_EMPTY);
             $reference_numbers = array_map('trim', $reference_numbers);
             $reference_numbers = array_unique($reference_numbers);
@@ -678,65 +764,74 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $products_data = [];
                 $found_products = [];
                 $not_found_products = [];
+                $found_references = []; 
                 
-             foreach ($reference_numbers as $reference_number) {
-    if (preg_match('/^https?:\/\//i', $reference_number)) {
-        // użytkownik podał pełny link
-        $product_url = trim($reference_number);
+                foreach ($reference_numbers as $reference_number) {
+                    $original_reference = $reference_number; 
+                    $extracted_reference = $reference_number; 
+                    
+                    if (preg_match('/^https?:\/\//i', $reference_number)) {
+                        $product_url = trim($reference_number);
 
-        // Spróbujmy wyciągnąć numer referencyjny z URL - TYLKO OSTATNIE CYFRY
-        if (preg_match_all('/(\d+)/', $product_url, $ref_matches)) {
-            $all_numbers = $ref_matches[1];
-            // Weź ostatnią grupę cyfr (najprawdopodobniej numer referencyjny)
-            $reference_number = end($all_numbers);
-        }
-    } else {
-        // standardowe szukanie po numerze w sitemap
-        $product_url = $scraper->findProductByReference($reference_number);
-    }
+                        if (preg_match_all('/(\d+)/', $product_url, $ref_matches)) {
+                            $all_numbers = $ref_matches[1];
+                            $extracted_reference = end($all_numbers);
+                        }
+                    } else {
+                        $product_url = $scraper->findProductByReference($reference_number);
+                        $extracted_reference = $reference_number;
+                    }
 
-    if ($product_url) {
-        $product_data = $scraper->getProductData($product_url, $reference_number);
-        
-        if (!isset($product_data['error'])) {
-            $products_data[] = $product_data;
-            $found_products[] = [
-                'reference' => $reference_number,
-                'url' => $product_url,
-                'title' => $product_data['title'][0]
-            ];
-        } else {
-            $not_found_products[] = [
-                'reference' => $reference_number,
-                'error' => $product_data['error']
-            ];
-        }
-    } else {
-        $not_found_products[] = [
-            'reference' => $reference_number,
-            'error' => 'Nie znaleziono produktu'
-        ];
-    }
+                    if ($product_url) {
+                        $product_data = $scraper->getProductData($product_url, $extracted_reference);
+                        
+                        if (!isset($product_data['error'])) {
+                            $products_data[] = $product_data;
+                            $found_products[] = [
+                                'reference' => $extracted_reference,
+                                'url' => $product_url,
+                                'title' => $product_data['title'][0]
+                            ];
+                            $found_references[] = $extracted_reference;
+                        } else {
+                            $not_found_products[] = [
+                                'reference' => $original_reference,
+                                'error' => $product_data['error']
+                            ];
+                        }
+                    } else {
+                        $not_found_products[] = [
+                            'reference' => $original_reference,
+                            'error' => 'Nie znaleziono produktu'
+                        ];
+                    }
 
-    usleep(500000); // 0.5s przerwy
-}
+                    usleep(500000); // 0.5s przerwy
+                }
                 
                 if (!empty($products_data)) {
                     $html_output = $scraper->generateMultiProductHtmlTemplate($products_data);
-                    $filename = "products_" . date('Y-m-d_H-i-s') . ".html";
                     
-                    if (file_put_contents($filename, $html_output)) {
+                    $filename = $scraper->generateFilename($found_references);
+                    $filepath = $scraper->getFilesDirectory() . '/' . $filename;
+                    
+                    if (file_put_contents($filepath, $html_output)) {
+                        $recent_files = $scraper->getRecentFiles(10);
+                        
                         $result = [
                             'success' => true,
                             'filename' => $filename,
+                            'filepath' => $filepath,
+                            'fileurl' => $scraper->getFilesDirectory() . '/' . $filename,
                             'found_count' => count($found_products),
                             'not_found_count' => count($not_found_products),
                             'found_products' => $found_products,
                             'not_found_products' => $not_found_products,
-                            'excluded_features' => $scraper->getExcludedFeatures()
+                            'excluded_features' => $scraper->getExcludedFeatures(),
+                            'recent_files' => $recent_files
                         ];
                     } else {
-                        $result = ['error' => 'Nie udało się zapisać pliku'];
+                        $result = ['error' => 'Nie udało się zapisać pliku. Sprawdź uprawnienia do folderu.'];
                     }
                 } else {
                     $result = ['error' => 'Nie znaleziono żadnych produktów'];
@@ -750,6 +845,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $result = ['error' => 'Proszę podać numery referencyjne'];
     }
+}
+
+try {
+    $scraper = new BricomanProductScraper();
+    $recent_files = $scraper->getRecentFiles(10);
+} catch (Exception $e) {
+    $recent_files = [];
+    error_log("Błąd przy pobieraniu listy plików: " . $e->getMessage());
 }
 ?>
 
@@ -766,8 +869,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         .container { 
-            max-width: 800px; 
+            max-width: 1200px; 
             margin: 0 auto; 
+            display: flex;
+            gap: 20px;
+        }
+        
+        .main-content {
+            flex: 1;
+        }
+        
+        .sidebar {
+            width: 300px;
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
         }
         
         .header { 
@@ -790,7 +906,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         textarea { 
-            width: 100%; 
+            width: 97%; 
             height: 120px; 
             padding: 10px; 
             border: 1px solid #ccc; 
@@ -855,62 +971,129 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             margin: 15px 0; 
             font-size: 12px; 
         }
+        
+        .recent-files {
+            margin-top: 20px;
+        }
+        
+        .recent-file-item {
+            padding: 8px;
+            margin-bottom: 8px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        
+        .recent-file-name {
+            font-weight: bold;
+            word-break: break-all;
+        }
+        
+        .recent-file-info {
+            font-size: 11px;
+            color: #666;
+            margin-top: 3px;
+        }
+        
+        .recent-file-link {
+            display: inline-block;
+            margin-top: 5px;
+            font-size: 11px;
+            color: #e67e22;
+            text-decoration: none;
+        }
+        
+        .sidebar-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #e67e22;
+            border-bottom: 2px solid #e67e22;
+            padding-bottom: 5px;
+        }
+        
+        .no-files {
+            color: #999;
+            font-style: italic;
+            text-align: center;
+            padding: 20px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>MoKaTe - Moje Karty Techniczne</h1>
-        </div>
-        
-        <div class="instructions">
-            <strong>Instrukcja:</strong> Wpisz numery referencyjne produktów (jeden pod drugim lub oddzielone przecinkami/spacjami).
-        </div>
-        
-        <div class="search-form">
-            <form method="POST">
-                <textarea name="reference_numbers" placeholder="Numery referencyjne, np.:&#10;123456&#10;789012&#10;345678" required><?= htmlspecialchars($_POST['reference_numbers'] ?? '') ?></textarea>
-                <button type="submit" class="btn-primary">Generuj karty techniczne</button>
-            </form>
-        </div>
+        <div class="main-content">
+            <div class="header">
+                <h1>MoKaTe - Moje Karty Techniczne</h1>
+            </div>
+            
+            <div class="instructions">
+                <strong>Instrukcja:</strong> Wpisz numery referencyjne produktów lub cały link do strony produktu (jeden pod drugim lub oddzielone przecinkami/spacjami).
+            </div>
+            
+            <div class="search-form">
+                <form method="POST">
+                    <textarea name="reference_numbers" placeholder="Numery referencyjne, np.:&#10;123456&#10;789012&#10;345678" required><?= htmlspecialchars($_POST['reference_numbers'] ?? '') ?></textarea>
+                    <button type="submit" class="btn-primary">Generuj karty techniczne</button>
+                </form>
+            </div>
 
-        <?php if (isset($result)): ?>
-            <?php if (isset($result['error'])): ?>
-                <div class="alert alert-error">
-                    <strong>Błąd:</strong> <?= htmlspecialchars($result['error']) ?>
+            <?php if (isset($result)): ?>
+                <?php if (isset($result['error'])): ?>
+                    <div class="alert alert-error">
+                        <strong>Błąd:</strong> <?= htmlspecialchars($result['error']) ?>
+                    </div>
+                <?php else: ?>
+                    <div class="alert alert-success">
+                        <strong>Sukces!</strong> Znaleziono: <?= $result['found_count'] ?> 
+                        <?php if ($result['not_found_count'] > 0): ?>
+                            | Nie znaleziono: <?= $result['not_found_count'] ?>
+                        <?php endif; ?>
+                        
+                        <div class="download-section">
+                            <a href="<?= htmlspecialchars($result['fileurl']) ?>" download class="download-link">
+                                Pobierz wygenerowane karty techniczne.</a>
+                        </div>
+                        
+                        <?php if (!empty($result['found_products'])): ?>
+                            <div class="products-list">
+                                <strong>Znalezione produkty:</strong>
+                                <?php foreach ($result['found_products'] as $product): ?>
+                                    <div class="product-item">✅ <?= htmlspecialchars($product['reference']) ?> - <?= htmlspecialchars($product['title']) ?></div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
+            <?php endif; ?>
+            
+            <div class="excluded-features">
+                <strong>Wykluczone cechy:</strong> 
+                <?php
+                $excluded = $scraper->getExcludedFeatures();
+                echo implode(', ', $excluded);
+                ?>
+            </div>
+        </div>
+        
+        <div class="sidebar">
+            <div class="sidebar-title">Ostatnie pliki</div>
+            
+            <?php if (!empty($recent_files)): ?>
+                <div class="recent-files">
+                    <?php foreach ($recent_files as $file): ?>
+                        <div class="recent-file-item">
+                            <div class="recent-file-info"><?= htmlspecialchars($file['filename']) ?></div>
+                            <div class="recent-file-info">
+                                <?= $file['date'] ?> • <?= $file['size'] ?>
+                            </div>
+                            <a href="<?= htmlspecialchars($file['url']) ?>" download class="recent-file-link"> Pobierz  </a>
+                        </div>
+                    <?php endforeach; ?>
                 </div>
             <?php else: ?>
-                <div class="alert alert-success">
-                    <strong>Sukces!</strong> Znaleziono: <?= $result['found_count'] ?> 
-                    <?php if ($result['not_found_count'] > 0): ?>
-                        | Nie znaleziono: <?= $result['not_found_count'] ?>
-                    <?php endif; ?>
-                    
-                    <div class="download-section">
-                        <a href="<?= htmlspecialchars($result['filename']) ?>" download class="download-link">
-                            Pobierz plik HTML
-                        </a>
-                    </div>
-                    
-                    <?php if (!empty($result['found_products'])): ?>
-                        <div class="products-list">
-                            <strong>Znalezione produkty:</strong>
-                            <?php foreach ($result['found_products'] as $product): ?>
-                                <div class="product-item">✅ <?= htmlspecialchars($product['reference']) ?> - <?= htmlspecialchars($product['title']) ?></div>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php endif; ?>
-                </div>
+                <div class="no-files">Brak wygenerowanych plików</div>
             <?php endif; ?>
-        <?php endif; ?>
-        
-        <div class="excluded-features">
-            <strong>Wykluczone cechy:</strong> 
-            <?php
-            $scraper_temp = new BricomanProductScraper();
-            $excluded = $scraper_temp->getExcludedFeatures();
-            echo implode(', ', $excluded);
-            ?>
         </div>
     </div>
 </body>
