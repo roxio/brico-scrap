@@ -4,10 +4,9 @@ ini_set('display_errors', 1);
 
 class BricomanProductScraper {
     private $base_url = "https://www.bricoman.pl";
-    private $sitemap_urls = [
-        "https://www.bricoman.pl/media/sitemap/products-1-1.xml",
-        "https://www.bricoman.pl/media/sitemap/products-1-2.xml"
-    ];
+    private $sitemap_index_url = "https://www.bricoman.pl/pub/media/sitemap/products.xml";
+    private $sitemap_cache_dir = 'sitemap_cache';
+    private $sitemap_cache_duration = 86400;
     private $pictograms = [];
     
     // Lista cech do wykluczenia
@@ -20,26 +19,142 @@ class BricomanProductScraper {
         'Kolor rodzina',
         'Kod dostawcy',
         'Referencja dostawcy',
-		'Styl płytek',
-		'Rektyfikacja [tak/nie]',
-		'Grupa wymiarowa',
-		'Funkcja antypoślizgowa',
-		'Odporność na zużycie',
-		'Kolor',
-		'Gama kolorystyczna'
+        'Styl płytek',
+        'Rektyfikacja [tak/nie]',
+        'Grupa wymiarowa',
+        'Funkcja antypoślizgowa',
+        'Odporność na zużycie',
+        'Kolor',
+        'Gama kolorystyczna'
     ];
     
     private $files_directory = 'generated_files';
     private $max_files = 20;
     
     public function __construct() {
-        if (!is_dir($this->files_directory)) {
-            if (!mkdir($this->files_directory, 0755, true)) {
-                error_log("Nie można utworzyć folderu: " . $this->files_directory);
+        $directories = [$this->files_directory, $this->sitemap_cache_dir];
+        foreach ($directories as $directory) {
+            if (!is_dir($directory)) {
+                if (!mkdir($directory, 0755, true)) {
+                    error_log("Nie można utworzyć folderu: " . $directory);
+                }
             }
         }
         
         $this->cleanupOldFiles();
+    }
+    
+    public function updateSitemaps() {
+        try {
+            $index_content = $this->makeRequest($this->sitemap_index_url);
+            if (!$index_content) {
+                error_log("Nie udało się pobrać głównego sitemap");
+                return false;
+            }
+            
+            preg_match_all('/<loc>(.*?)<\/loc>/', $index_content, $matches);
+            $sitemap_urls = $matches[1];
+            
+            if (empty($sitemap_urls)) {
+                error_log("Brak sitemap w indeksie");
+                return false;
+            }
+            
+            $updated_count = 0;
+            foreach ($sitemap_urls as $sitemap_url) {
+                if ($this->shouldUpdateSitemap($sitemap_url)) {
+                    if ($this->downloadAndCacheSitemap($sitemap_url)) {
+                        $updated_count++;
+                    }
+                }
+            }
+            
+            error_log("Zaktualizowano $updated_count sitemap");
+            return $updated_count > 0;
+            
+        } catch (Exception $e) {
+            error_log("Błąd przy aktualizacji sitemap: " . $e->getMessage());
+            return false;
+        }
+    }
+    
+    private function shouldUpdateSitemap($sitemap_url) {
+        $filename = $this->getSitemapCacheFilename($sitemap_url);
+        $cache_file = $this->sitemap_cache_dir . '/' . $filename;
+        
+        if (!file_exists($cache_file)) {
+            return true;
+        }
+        
+        $file_age = time() - filemtime($cache_file);
+        return $file_age > $this->sitemap_cache_duration;
+    }
+    
+    private function downloadAndCacheSitemap($sitemap_url) {
+        try {
+            $content = $this->makeRequest($sitemap_url);
+            if (!$content) {
+                return false;
+            }
+            
+            $filename = $this->getSitemapCacheFilename($sitemap_url);
+            $cache_file = $this->sitemap_cache_dir . '/' . $filename;
+            
+            if (file_put_contents($cache_file, $content)) {
+                error_log("Zapisano sitemap: " . $filename);
+                return true;
+            }
+            
+            return false;
+            
+        } catch (Exception $e) {
+            error_log("Błąd przy pobieraniu sitemap: " . $e->getMessage());
+            return false;
+        }
+    }
+    
+    private function getSitemapCacheFilename($sitemap_url) {
+        $hash = md5($sitemap_url);
+        return 'sitemap_' . $hash . '.xml';
+    }
+    
+    private function getCachedSitemapUrls() {
+        $sitemap_files = glob($this->sitemap_cache_dir . '/sitemap_*.xml');
+        $sitemap_urls = [];
+        
+        foreach ($sitemap_files as $file) {
+            if (file_exists($file) && is_file($file)) {
+                $sitemap_urls[] = $file;
+            }
+        }
+        
+        return $sitemap_urls;
+    }
+    
+    public function ensureSitemapsUpdated() {
+        $cached_sitemaps = $this->getCachedSitemapUrls();
+        
+        if (empty($cached_sitemaps)) {
+            error_log("Brak sitemap w cache, pobieram nowe...");
+            return $this->updateSitemaps();
+        }
+        
+        $needs_update = false;
+        foreach ($cached_sitemaps as $sitemap_file) {
+            $file_age = time() - filemtime($sitemap_file);
+            if ($file_age > $this->sitemap_cache_duration) {
+                $needs_update = true;
+                break;
+            }
+        }
+        
+        if ($needs_update) {
+            error_log("Sitemapy wymagają aktualizacji...");
+            return $this->updateSitemaps();
+        }
+        
+        error_log("Używam sitemap z cache");
+        return true;
     }
     
     public function getFilesDirectory() {
@@ -126,14 +241,62 @@ class BricomanProductScraper {
     }
     
     public function findProductByReference($reference_number) {
-        foreach ($this->sitemap_urls as $sitemap_url) {
+        $this->ensureSitemapsUpdated();
+        $cached_sitemaps = $this->getCachedSitemapUrls();
+        
+        foreach ($cached_sitemaps as $sitemap_file) {
             try {
-                $product_url = $this->searchInSitemap($sitemap_url, $reference_number);
+                $product_url = $this->searchInCachedSitemap($sitemap_file, $reference_number);
                 if ($product_url) {
                     return $product_url;
                 }
             } catch (Exception $e) {
                 error_log("Błąd przy przeszukiwaniu sitemap: " . $e->getMessage());
+            }
+        }
+        
+        error_log("Produkt nie znaleziony w cache, szukam online...");
+        return $this->findProductOnline($reference_number);
+    }
+    
+    private function findProductOnline($reference_number) {
+        try {
+            $index_content = $this->makeRequest($this->sitemap_index_url);
+            if (!$index_content) {
+                return null;
+            }
+            
+            preg_match_all('/<loc>(.*?)<\/loc>/', $index_content, $matches);
+            $sitemap_urls = $matches[1];
+            
+            foreach ($sitemap_urls as $sitemap_url) {
+                $product_url = $this->searchInSitemap($sitemap_url, $reference_number);
+                if ($product_url) {
+                    $this->downloadAndCacheSitemap($sitemap_url);
+                    return $product_url;
+                }
+            }
+            
+            return null;
+            
+        } catch (Exception $e) {
+            error_log("Błąd przy wyszukiwaniu online: " . $e->getMessage());
+            return null;
+        }
+    }
+    
+    private function searchInCachedSitemap($sitemap_file, $reference_number) {
+        $xml_content = file_get_contents($sitemap_file);
+        if (!$xml_content) {
+            return null;
+        }
+        
+        $pattern = '/<loc>(.*?' . preg_quote($reference_number, '/') . '.*?)<\/loc>/';
+        if (preg_match_all($pattern, $xml_content, $matches)) {
+            foreach ($matches[1] as $url) {
+                if (strpos($url, $reference_number) !== false) {
+                    return trim($url);
+                }
             }
         }
         return null;
@@ -245,7 +408,7 @@ class BricomanProductScraper {
         return $data;
     }
 
-     private function extractProductPicture($html, $reference_number) {
+    private function extractProductPicture($html, $reference_number) {
         $pattern = '/<img[^>]*(?:src|data-src)="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture\.jpeg[^"]*)"[^>]*>/i';
         
         if (preg_match($pattern, $html, $match)) {
@@ -257,7 +420,7 @@ class BricomanProductScraper {
             '/<img[^>]*data-src="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture\.jpeg[^"]*)"[^>]*>/i',
             '/<img[^>]*src="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture\.jpeg[^"]*)"[^>]*>/i',
             '/<div[^>]*data-image="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture\.jpeg[^"]*)"[^>]*>/i',
-			'/<img[^>]*data-src="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture_01\.jpeg[^"]*)"[^>]*>/i',
+            '/<img[^>]*data-src="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture_01\.jpeg[^"]*)"[^>]*>/i',
             '/<img[^>]*src="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture_01\.jpeg[^"]*)"[^>]*>/i',
             '/<div[^>]*data-image="([^"]*' . preg_quote($reference_number, '/') . '[^"]*_picture_01\.jpeg[^"]*)"[^>]*>/i'
         ];
@@ -277,10 +440,10 @@ class BricomanProductScraper {
 
     private function cleanImageUrl($url) {
         if (strpos($url, '.jpeg?') !== false) {
-            $url = substr($url, 0, strpos($url, '.jpeg?') + 5); // +5 aby zachować ".jpeg"
+            $url = substr($url, 0, strpos($url, '.jpeg?') + 5);
         }
         if (strpos($url, '.jpg?') !== false) {
-            $url = substr($url, 0, strpos($url, '.jpg?') + 4); // +4 aby zachować ".jpg"
+            $url = substr($url, 0, strpos($url, '.jpg?') + 4);
         }
         return $url;
     }
@@ -547,12 +710,12 @@ class BricomanProductScraper {
         .title_data {
             width: 40%;
             font-weight: bold;
-			font-size: 11pt;
+            font-size: 11pt;
             background-color: #f2f2f2;
         }
         .value_data {
             width: 60%;
-			font-size: 11pt;
+            font-size: 11pt;
         }
         .brand-picture {
             max-height: 12mm;
@@ -593,7 +756,7 @@ class BricomanProductScraper {
             display: flex;
             align-items: center;
             margin: 1mm 0;
-			font-size: 12pt;
+            font-size: 12pt;
         }
         .product-title {
             font-size: 16pt;
@@ -623,8 +786,8 @@ class BricomanProductScraper {
                 height: 210mm;
                 margin: 0;
                 padding: 2mm;
-				-webkit-print-color-adjust: exact; /* Chrome, Safari */
-				print-color-adjust: exact;         /* Firefox */
+                -webkit-print-color-adjust: exact; /* Chrome, Safari */
+                print-color-adjust: exact;         /* Firefox */
             }
             .product-card {
                 border: 0.5px solid #ccc;
@@ -687,8 +850,8 @@ class BricomanProductScraper {
     <div class="midle-border"></div>
 
     <h2 class="section-title">CECHY PRODUKTU</h2>';
-	
-	if (!empty($data['pictograms'])) {
+    
+    if (!empty($data['pictograms'])) {
                 $html .= '
     <div class="pictograms-container">';
                 
@@ -806,7 +969,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         ];
                     }
 
-                    usleep(500000); // 0.5s przerwy
+                    usleep(500000);
                 }
                 
                 if (!empty($products_data)) {
@@ -1018,6 +1181,14 @@ try {
             text-align: center;
             padding: 20px;
         }
+        
+        .cache-info {
+            background: #e8f4fd;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #3498db;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -1029,6 +1200,9 @@ try {
             
             <div class="instructions">
                 <strong>Instrukcja:</strong> Wpisz numery referencyjne produktów lub cały link do strony produktu (jeden pod drugim lub oddzielone przecinkami/spacjami).
+                <div class="cache-info">
+                    <strong>System cache:</strong> Sitemapy są przechowywane lokalnie przez 24 godziny dla szybszego działania.
+                </div>
             </div>
             
             <div class="search-form">
