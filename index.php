@@ -1,7 +1,4 @@
 <?php
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
 class BricomanProductScraper {
     private $base_url = "https://www.bricoman.pl";
     private $sitemap_index_url = "https://www.bricoman.pl/pub/media/sitemap/products.xml";
@@ -25,6 +22,7 @@ class BricomanProductScraper {
         'Funkcja antypoślizgowa',
         'Odporność na zużycie',
         'Kolor',
+		'Jednostka pojemności ',
         'Gama kolorystyczna'
     ];
     
@@ -285,39 +283,29 @@ class BricomanProductScraper {
         }
     }
     
-    private function searchInCachedSitemap($sitemap_file, $reference_number) {
-        $xml_content = file_get_contents($sitemap_file);
-        if (!$xml_content) {
-            return null;
-        }
-        
-        $pattern = '/<loc>(.*?' . preg_quote($reference_number, '/') . '.*?)<\/loc>/';
-        if (preg_match_all($pattern, $xml_content, $matches)) {
-            foreach ($matches[1] as $url) {
-                if (strpos($url, $reference_number) !== false) {
-                    return trim($url);
-                }
-            }
-        }
-        return null;
-    }
-    
-    private function searchInSitemap($sitemap_url, $reference_number) {
-        $xml_content = $this->makeRequest($sitemap_url);
-        if (!$xml_content) {
-            return null;
-        }
-        
-        $pattern = '/<loc>(.*?' . preg_quote($reference_number, '/') . '.*?)<\/loc>/';
-        if (preg_match_all($pattern, $xml_content, $matches)) {
-            foreach ($matches[1] as $url) {
-                if (strpos($url, $reference_number) !== false) {
-                    return trim($url);
-                }
-            }
-        }
-        return null;
-    }
+	private function searchInSitemapContent($xml_content, $reference_number) {
+		if (!$xml_content) return null;
+		
+		$pattern = '/<loc>(.*?' . preg_quote($reference_number, '/') . '.*?)<\/loc>/';
+		if (preg_match_all($pattern, $xml_content, $matches)) {
+			foreach ($matches[1] as $url) {
+				if (strpos($url, $reference_number) !== false) {
+					return trim($url);
+				}
+			}
+		}
+		return null;
+	}
+
+	private function searchInCachedSitemap($sitemap_file, $reference_number) {
+		$xml_content = file_get_contents($sitemap_file);
+		return $this->searchInSitemapContent($xml_content, $reference_number);
+	}
+
+	private function searchInSitemap($sitemap_url, $reference_number) {
+		$xml_content = $this->makeRequest($sitemap_url);
+		return $this->searchInSitemapContent($xml_content, $reference_number);
+	}
     
     public function getProductData($product_url, $reference_number) {
         try {
@@ -449,8 +437,12 @@ class BricomanProductScraper {
     }
 
     private function checkImageExists($url) {
+    $headers = @get_headers($url);
+    if ($headers && strpos($headers[0], '200') !== false) {
         return true;
     }
+    return false;
+}
 
     private function normalizeUrl($url) {
         if (!$url) return null;
@@ -564,21 +556,7 @@ class BricomanProductScraper {
         }
         return false;
     }
-    
-    public function addExcludedFeature($feature) {
-        if (!in_array($feature, $this->excluded_features)) {
-            $this->excluded_features[] = $feature;
-        }
-    }
-    
-    public function removeExcludedFeature($feature) {
-        $key = array_search($feature, $this->excluded_features);
-        if ($key !== false) {
-            unset($this->excluded_features[$key]);
-            $this->excluded_features = array_values($this->excluded_features);
-        }
-    }
-    
+       
     public function getExcludedFeatures() {
         return $this->excluded_features;
     }
@@ -719,6 +697,7 @@ class BricomanProductScraper {
         }
         .brand-picture {
             max-height: 12mm;
+			max-width: 20mm;
             object-fit: contain;
         }
         .barcode {
@@ -1181,14 +1160,6 @@ try {
             text-align: center;
             padding: 20px;
         }
-        
-        .cache-info {
-            background: #e8f4fd;
-            padding: 10px;
-            margin: 10px 0;
-            border-left: 3px solid #3498db;
-            font-size: 12px;
-        }
     </style>
 </head>
 <body>
@@ -1200,9 +1171,6 @@ try {
             
             <div class="instructions">
                 <strong>Instrukcja:</strong> Wpisz numery referencyjne produktów lub cały link do strony produktu (jeden pod drugim lub oddzielone przecinkami/spacjami).
-                <div class="cache-info">
-                    <strong>System cache:</strong> Sitemapy są przechowywane lokalnie przez 24 godziny dla szybszego działania.
-                </div>
             </div>
             
             <div class="search-form">
