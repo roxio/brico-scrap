@@ -1,19 +1,18 @@
 # Bricoman.pl Product Scraper
 
-Skrypt PHP do pobierania kart technicznych produktów ze strony Bricoman.pl na podstawie numerów referencyjnych. Generuje plik HTML z gotowymi kartami technicznymi (format A5, 2 karty na stronę A4 w orientacji poziomej).
+Skrypt PHP do generowania kart technicznych produktów ze strony Bricoman.pl na podstawie numerów referencyjnych. Generuje plik HTML z gotowymi kartami technicznymi.
 
 ## ✨ Funkcjonalności
-- Pobieranie danych o produkcie z sitemap Bricoman.
+- Pobieranie danych o produkcie z sitemap.
 - Wydobywanie:
   - nazwy produktu,
-  - głównego numeru referencyjnego (SKU),
+  - numeru referencyjnego,
   - zdjęcia produktu,
   - logotypu producenta,
-  - cech technicznych (atrybutów),
+  - cech technicznych,
   - piktogramów,
-  - kodu kreskowego.
+  - generowanie kodu kreskowego.
 - Generowanie pliku HTML z kartami produktów:
-  - 2 karty na stronie A4 (układ poziomy),
   - sekcje: nazwa, zdjęcie, cechy techniczne, piktogramy, logo producenta,
   - kod kreskowy dla numeru referencyjnego,
   - data i godzina wydruku.
@@ -55,10 +54,10 @@ Cały skrypt znajduje się w pliku **`index.php`** i składa się z dwóch głó
 
 ## ⚙️ Wymagania
 - PHP 7.4 lub nowsze
-- Dostęp do internetu (skrypt pobiera dane ze strony Bricoman)
+- Dostęp do internetu (skrypt pobiera dane ze strony www dostawcy)
 
 ## 📌 Uwagi
-- Skrypt robi małą przerwę (`usleep(500000)`) między pobieraniem kolejnych produktów, aby nie przeciążać serwera Bricoman.
+- Skrypt robi małą przerwę (`usleep(500000)`) między pobieraniem kolejnych produktów, aby nie przeciążać serwera.
 - Jeśli nie znajdzie produktu, zwraca komunikat błędu dla konkretnego numeru referencyjnego.
 
 ## 📄 Licencja
@@ -68,7 +67,7 @@ Projekt do użytku własnego / edukacyjnego. W przypadku wykorzystania komercyjn
 
 # Bricoman.pl Product Scraper
 
-A PHP script for fetching product datasheets from Bricoman.pl based on reference numbers. It generates an HTML file with ready-made product cards (A5 format, 2 cards per A4 page in landscape orientation).
+A PHP script for fetching product datasheets from Bricoman.pl based on reference numbers. It generates an HTML file with ready-made product cards.
 
 ## ✨ Features
 - Fetch product data from the Bricoman sitemap.
@@ -123,10 +122,10 @@ The entire script is in **`index.php`** and consists of two main parts:
 
 ## ⚙️ Requirements
 - PHP 7.4 or higher  
-- Internet access (the script fetches data from Bricoman’s website)
+- Internet access (the script fetches data from website)
 
 ## 📌 Notes
-- The script includes a small delay (`usleep(500000)`) between fetching products to avoid overloading the Bricoman server.  
+- The script includes a small delay (`usleep(500000)`) between fetching products to avoid overloading the server.  
 - If a product is not found, it returns an error message for that specific reference number.
 
 ## 📜 License
