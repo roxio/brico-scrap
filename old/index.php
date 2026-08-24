@@ -282,51 +282,23 @@ class BricomanProductScraper {
     }
 
     private function parseProductPage($html, $url, $ref) {
-        $jsonld = $this->extractJsonLd($html);
-
         $data = [
-            'title' => ['Produkt Bricoman'],
-            'main_sku' => [$ref],
-            'product_picture' => null,
-            'product_brand' => null,
-            'attributes_list_object' => $this->extractTechnicalSpecifications($html, $jsonld),
-            'pictograms' => [],
-            'print_date' => date('d.m.Y'),
+            'title' => ['Produkt Bricoman'], 
+            'main_sku' => [$ref], 
+            'product_picture' => null, 
+            'product_brand' => null, 
+            'attributes_list_object' => $this->extractTechnicalSpecifications($html),
+            'pictograms' => [], 
+            'print_date' => date('d.m.Y'), 
             'print_hour' => date('H:i')
         ];
-
-        if (!empty($jsonld['name'])) {
-            $data['title'][0] = trim($jsonld['name']);
-        } elseif (preg_match('/<h1[^>]*id="product-name"[^>]*>(.*?)<\/h1>/is', $html, $m)) {
-            $data['title'][0] = strip_tags(trim($m[1]));
-        } elseif (preg_match('/<h1[^>]*>(.*?)<\/h1>/is', $html, $m)) {
+        
+        if (preg_match('/<h1[^>]*>(.*?)<\/h1>/i', $html, $m)) {
             $data['title'][0] = strip_tags(trim($m[1]));
         }
-
-        if (!empty($jsonld['sku'])) {
-            $data['main_sku'][0] = trim($jsonld['sku']);
-        } elseif (preg_match('/<span[^>]*class="[^"]*js-product-ref[^"]*"[^>]*>([^<]+)<\/span>/i', $html, $m)) {
-            $data['main_sku'][0] = trim($m[1]);
-        }
-
-        if (!empty($jsonld['image'])) {
-            $data['product_picture'] = $this->normalizeUrl(trim($jsonld['image']));
-        }
-        if (!$data['product_picture']) {
-            $image_patterns = [
-                '/<a[^>]*href="([^"]*media\.adeo\.com[^"]*\.(jpg|jpeg|png))[^"]*"[^>]*>\s*<img[^>]*class="[^"]*m-carousel-main__image[^"]*"/is',
-                '/<picture[^>]*class="[^"]*m-carousel-main__picture[^"]*"[^>]*data-(?:default|iesrc)="([^"]*)"/i',
-            ];
-            foreach ($image_patterns as $pattern) {
-                if (preg_match($pattern, $html, $m)) {
-                    $data['product_picture'] = $this->normalizeUrl(html_entity_decode($m[1]));
-                    break;
-                }
-            }
-        }
-        if (!$data['product_picture']) {
-            $data['product_picture'] = $this->extractProductPicture($html, $ref);
-        }
+        
+        // Obrazek
+        $data['product_picture'] = $this->extractProductPicture($html, $ref);
         if (!$data['product_picture']) {
              $image_patterns = [
                 '/<img[^>]*class="[^"]*b-product-carousel__main-slide swiper-slide[^"]*"[^>]*src="([^"]*\.(jpg|jpeg|png|gif))"[^>]*>/i',
@@ -341,37 +313,26 @@ class BricomanProductScraper {
                 }
             }
         }
-
+        
+        // Brand
         $brand_patterns = [
-            '/<img[^>]*class="[^"]*o-product-detail-informations__images--brand[^"]*"[^>]*data-src="([^"]*)"[^>]*>/i',
-            '/<img[^>]*class="[^"]*o-product-detail-informations__images--brand[^"]*"[^>]*src="([^"]*)"[^>]*>/i',
             '/<img[^>]*class="[^"]*b-product-carousel__main-brand-image[^"]*"[^>]*src="([^"]*)"[^>]*>/i',
             '/<img[^>]*class="[^"]*b-product-carousel__main-brand-image[^"]*"[^>]*data-src="([^"]*)"[^>]*>/i',
             '/<div[^>]*class="[^"]*b-product-carousel__main-brand[^"]*"[^>]*>.*?<img[^>]*src="([^"]*)"[^>]*>/is',
             '/<img[^>]*class="[^"]*brand-image[^"]*"[^>]*src="([^"]*)"/i',
             '/<img[^>]*class="[^"]*brand-image[^"]*"[^>]*data-src="([^"]*)"/i'
         ];
-
+        
         foreach ($brand_patterns as $pattern) {
             if (preg_match($pattern, $html, $match)) {
-                $data['product_brand'] = $this->normalizeUrl(html_entity_decode($match[1]));
+                $data['product_brand'] = $this->normalizeUrl($match[1]);
                 break;
             }
         }
-
+        
         $this->extractPictogramsFromAccordion($html);
         $data['pictograms'] = $this->pictograms;
         return $data;
-    }
-
-    private function extractJsonLd($html) {
-        if (preg_match('/<script[^>]*type="application\/ld\+json"[^>]*id="jsonld_PRODUCT"[^>]*>(.*?)<\/script>/is', $html, $m)) {
-            $decoded = json_decode(trim($m[1]), true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                return $decoded;
-            }
-        }
-        return null;
     }
     
     private function extractProductPicture($html, $ref) {
@@ -416,7 +377,25 @@ class BricomanProductScraper {
     }
     
     private function extractPictogramsFromAccordion($html) {
-        $this->pictograms = [];
+        $pictograms = [];
+        if (preg_match('/<m-accordion[^>]*class="[^"]*b-product-details__accordion[^"]*"[^>]*>(.*?)<\/m-accordion>/is', $html, $accordion_match)) {
+            $accordion_section = $accordion_match[1];
+            if (preg_match_all('/<img[^>]*(?:src|data-src)="([^"]*(_picto)?\.(jpg|jpeg|png|svg)(\?[^"]*)?)"[^>]*>/i', $accordion_section, $img_matches)) {
+                foreach ($img_matches[1] as $img_url) {
+                    $normalized = $this->normalizeUrl($img_url);
+                    if ($normalized) $pictograms[] = $normalized;
+                }
+            }
+        }
+        if (preg_match_all('/<img[^>]*(?:src|data-src)="([^"]*?_picto\.(jpg|jpeg|png|svg)(\?[^"]*)?)"[^>]*>/i', $html, $all_matches)) {
+            foreach ($all_matches[1] as $img_url) {
+                $normalized = $this->normalizeUrl($img_url);
+                if ($normalized) $pictograms[] = $normalized;
+            }
+        }
+        $feature_pictograms = $this->extractPictogramsFromFeatures($html);
+        $pictograms = array_merge($pictograms, $feature_pictograms);
+        $this->pictograms = array_unique($pictograms);
     }
     
     private function extractPictogramsFromFeatures($html) {
@@ -432,19 +411,9 @@ class BricomanProductScraper {
         return $pictograms;
     }
     
-    private function extractTechnicalSpecifications($html, $jsonld = null) {
+    private function extractTechnicalSpecifications($html) {
         $specs = [];
-
-        if (preg_match('/<table[^>]*id="main-characteristics-items"[^>]*>(.*?)<\/table>/is', $html, $sec)) {
-            if (preg_match_all('/<tr[^>]*class="[^"]*m-product-attr-row[^"]*"[^>]*>(.*?)<\/tr>/is', $sec[1], $rows)) {
-                foreach ($rows[1] as $row) {
-                    $spec = $this->parseAttrRow($row);
-                    if ($spec) $specs[] = $spec;
-                }
-            }
-        }
-
-        if (empty($specs) && preg_match('/<h3[^>]*>[^<]*Cechy produktu[^<]*<\/h3>(.*?)<(h3|div|section)/is', $html, $sec)) {
+        if (preg_match('/<h3[^>]*>[^<]*Cechy produktu[^<]*<\/h3>(.*?)<(h3|div|section)/is', $html, $sec)) {
             if (preg_match_all('/<li[^>]*>(.*?)<\/li>/is', $sec[1], $lis)) {
                 foreach ($lis[1] as $li) {
                     $spec = $this->parseFeatureItem($li);
@@ -452,7 +421,7 @@ class BricomanProductScraper {
                 }
             }
         }
-
+        
         if (empty($specs)) {
             $section_patterns = [
                 '/<div[^>]*class="[^"]*product-specifications[^"]*"[^>]*>(.*?)<\/div>/is',
@@ -476,30 +445,7 @@ class BricomanProductScraper {
                 }
             }
         }
-
-        if (!empty($jsonld['gtin'])) {
-            $has_ean = false;
-            foreach ($specs as $spec) {
-                if (stripos($spec['label'], 'EAN') !== false) { $has_ean = true; break; }
-            }
-            if (!$has_ean) {
-                $specs[] = ['label' => 'EAN', 'value' => htmlspecialchars(trim($jsonld['gtin']))];
-            }
-        }
-
         return $specs;
-    }
-
-    private function parseAttrRow($row) {
-        if (preg_match('/<th[^>]*class="[^"]*m-product-attr-row__name[^"]*"[^>]*>(.*?)<\/th>/is', $row, $l_m) &&
-            preg_match('/<td[^>]*class="[^"]*m-product-attr-row__value[^"]*"[^>]*>(.*?)<\/td>/is', $row, $v_m)) {
-            $label = trim(preg_replace('/\s+/', ' ', strip_tags($l_m[1])));
-            $value = trim(preg_replace('/\s+/', ' ', strip_tags($v_m[1])));
-            if (!empty($label) && !empty($value)) {
-                return ['label' => htmlspecialchars($label), 'value' => htmlspecialchars($value)];
-            }
-        }
-        return null;
     }
     
     // Helpery do parsowania
